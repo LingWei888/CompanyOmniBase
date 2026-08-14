@@ -2,7 +2,6 @@ package cn.exitcode.richpeasants.api.config;
 
 import cn.exitcode.richpeasants.common.security.JwtAuthenticationFilter;
 import cn.exitcode.richpeasants.common.security.RestAuthHandlers;
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,11 +24,15 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RestAuthHandlers restAuthHandlers;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, RestAuthHandlers restAuthHandlers) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.restAuthHandlers = restAuthHandlers;
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {

@@ -12,20 +12,28 @@ import cn.exitcode.richpeasants.common.security.JwtTokenProvider;
 import cn.exitcode.richpeasants.common.security.LoginUser;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
     private final SysUserRepository sysUserRepository;
+
+    public AuthService(AuthenticationManager authenticationManager,
+                       JwtTokenProvider jwtTokenProvider,
+                       JwtProperties jwtProperties,
+                       SysUserRepository sysUserRepository) {
+        this.authenticationManager = authenticationManager;
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.jwtProperties = jwtProperties;
+        this.sysUserRepository = sysUserRepository;
+    }
 
     public LoginResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
@@ -59,29 +67,31 @@ public class AuthService {
     public LoginResponse.UserInfo currentUser(LoginUser loginUser) {
         SysUser user = sysUserRepository.findById(loginUser.getUserId())
                 .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED));
-        return LoginResponse.UserInfo.builder()
-                .id(user.getId())
-                .username(user.getUsername())
-                .nickname(user.getNickname())
-                .role(user.getRole())
-                .build();
+        LoginResponse.UserInfo info = new LoginResponse.UserInfo();
+        info.setId(user.getId());
+        info.setUsername(user.getUsername());
+        info.setNickname(user.getNickname());
+        info.setRole(user.getRole());
+        return info;
     }
 
     private LoginResponse buildTokenResponse(Long userId, String username, UserRole role) {
         String accessToken = jwtTokenProvider.createAccessToken(userId, username, role);
         String refreshToken = jwtTokenProvider.createRefreshToken(userId, username, role);
         SysUser user = sysUserRepository.findById(userId).orElse(null);
-        return LoginResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .tokenType("Bearer")
-                .expiresIn(jwtProperties.getAccessTokenExpireSeconds())
-                .user(LoginResponse.UserInfo.builder()
-                        .id(userId)
-                        .username(username)
-                        .nickname(user != null ? user.getNickname() : username)
-                        .role(role)
-                        .build())
-                .build();
+
+        LoginResponse.UserInfo info = new LoginResponse.UserInfo();
+        info.setId(userId);
+        info.setUsername(username);
+        info.setNickname(user != null ? user.getNickname() : username);
+        info.setRole(role);
+
+        LoginResponse response = new LoginResponse();
+        response.setAccessToken(accessToken);
+        response.setRefreshToken(refreshToken);
+        response.setTokenType("Bearer");
+        response.setExpiresIn(jwtProperties.getAccessTokenExpireSeconds());
+        response.setUser(info);
+        return response;
     }
 }

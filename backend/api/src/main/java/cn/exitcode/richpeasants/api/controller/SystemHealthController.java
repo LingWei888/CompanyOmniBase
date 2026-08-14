@@ -1,7 +1,6 @@
 package cn.exitcode.richpeasants.api.controller;
 
 import cn.exitcode.richpeasants.common.result.ApiResult;
-import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.connection.Connection;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.boot.actuate.health.HealthComponent;
@@ -21,13 +20,22 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/system")
-@RequiredArgsConstructor
 public class SystemHealthController {
 
     private final JdbcTemplate jdbcTemplate;
     private final ConnectionFactory rabbitConnectionFactory;
     private final ElasticsearchOperations elasticsearchOperations;
     private final HealthEndpoint healthEndpoint;
+
+    public SystemHealthController(JdbcTemplate jdbcTemplate,
+                                  ConnectionFactory rabbitConnectionFactory,
+                                  ElasticsearchOperations elasticsearchOperations,
+                                  HealthEndpoint healthEndpoint) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.rabbitConnectionFactory = rabbitConnectionFactory;
+        this.elasticsearchOperations = elasticsearchOperations;
+        this.healthEndpoint = healthEndpoint;
+    }
 
     @GetMapping("/self-check")
     public ApiResult<Map<String, Object>> selfCheck() {

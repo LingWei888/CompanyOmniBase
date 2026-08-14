@@ -1,7 +1,6 @@
 package cn.exitcode.richpeasants.common.security;
 
 import cn.exitcode.richpeasants.common.enums.UserRole;
-import lombok.Getter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -9,7 +8,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
-@Getter
 public class LoginUser implements UserDetails {
 
     private final Long userId;
@@ -26,9 +24,27 @@ public class LoginUser implements UserDetails {
         this.enabled = enabled;
     }
 
+    public Long getUserId() {
+        return userId;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
     }
 
     @Override

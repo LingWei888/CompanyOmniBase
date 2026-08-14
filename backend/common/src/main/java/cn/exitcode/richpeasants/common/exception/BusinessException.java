@@ -1,9 +1,7 @@
 package cn.exitcode.richpeasants.common.exception;
 
 import cn.exitcode.richpeasants.common.result.ResultCode;
-import lombok.Getter;
 
-@Getter
 public class BusinessException extends RuntimeException {
 
     private final int code;
@@ -21,5 +19,9 @@ public class BusinessException extends RuntimeException {
     public BusinessException(int code, String message) {
         super(message);
         this.code = code;
+    }
+
+    public int getCode() {
+        return code;
     }
 }

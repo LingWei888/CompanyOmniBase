@@ -1,10 +1,5 @@
 package cn.exitcode.richpeasants.common.result;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
-@Getter
-@RequiredArgsConstructor
 public enum ResultCode {
 
     SUCCESS(0, "success"),
@@ -17,4 +12,17 @@ public enum ResultCode {
 
     private final int code;
     private final String message;
+
+    ResultCode(int code, String message) {
+        this.code = code;
+        this.message = message;
+    }
+
+    public int getCode() {
+        return code;
+    }
+
+    public String getMessage() {
+        return message;
+    }
 }

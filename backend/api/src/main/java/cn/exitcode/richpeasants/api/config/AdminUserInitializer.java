@@ -3,19 +3,24 @@ package cn.exitcode.richpeasants.api.config;
 import cn.exitcode.richpeasants.common.entity.SysUser;
 import cn.exitcode.richpeasants.common.enums.UserRole;
 import cn.exitcode.richpeasants.common.repository.SysUserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class AdminUserInitializer implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminUserInitializer.class);
 
     private final SysUserRepository sysUserRepository;
     private final PasswordEncoder passwordEncoder;
+
+    public AdminUserInitializer(SysUserRepository sysUserRepository, PasswordEncoder passwordEncoder) {
+        this.sysUserRepository = sysUserRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @Override
     public void run(String... args) {

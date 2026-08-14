@@ -5,7 +5,6 @@ import cn.exitcode.richpeasants.common.result.ResultCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -17,10 +16,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 @Component
-@RequiredArgsConstructor
 public class RestAuthHandlers implements AuthenticationEntryPoint, AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
+
+    public RestAuthHandlers(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)

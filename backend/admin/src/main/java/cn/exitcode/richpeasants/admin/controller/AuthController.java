@@ -7,7 +7,6 @@ import cn.exitcode.richpeasants.admin.service.AuthService;
 import cn.exitcode.richpeasants.common.result.ApiResult;
 import cn.exitcode.richpeasants.common.security.LoginUser;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,10 +16,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin/auth")
-@RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
 
     @PostMapping("/login")
     public ApiResult<LoginResponse> login(@Valid @RequestBody LoginRequest request) {

@@ -2,17 +2,19 @@ package cn.exitcode.richpeasants.common.security;
 
 import cn.exitcode.richpeasants.common.entity.SysUser;
 import cn.exitcode.richpeasants.common.repository.SysUserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final SysUserRepository sysUserRepository;
+
+    public CustomUserDetailsService(SysUserRepository sysUserRepository) {
+        this.sysUserRepository = sysUserRepository;
+    }
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
