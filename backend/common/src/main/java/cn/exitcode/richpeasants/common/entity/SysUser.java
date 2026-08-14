@@ -1,5 +1,6 @@
 package cn.exitcode.richpeasants.common.entity;
 
+import cn.exitcode.richpeasants.common.enums.UserPlan;
 import cn.exitcode.richpeasants.common.enums.UserRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -31,9 +32,16 @@ public class SysUser {
     @Column(length = 64)
     private String nickname;
 
+    @Column(name = "avatar_url", length = 512)
+    private String avatarUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private UserRole role;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private UserPlan plan = UserPlan.FREE;
 
     @Column(nullable = false)
     private Boolean enabled = true;
@@ -49,6 +57,9 @@ public class SysUser {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
+        if (this.plan == null) {
+            this.plan = UserPlan.FREE;
+        }
     }
 
     @PreUpdate
@@ -88,12 +99,28 @@ public class SysUser {
         this.nickname = nickname;
     }
 
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
     public UserRole getRole() {
         return role;
     }
 
     public void setRole(UserRole role) {
         this.role = role;
+    }
+
+    public UserPlan getPlan() {
+        return plan;
+    }
+
+    public void setPlan(UserPlan plan) {
+        this.plan = plan;
     }
 
     public Boolean getEnabled() {

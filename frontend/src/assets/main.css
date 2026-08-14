@@ -25,10 +25,19 @@ body,
 
 body {
   margin: 0;
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
+  max-width: 100%;
 }

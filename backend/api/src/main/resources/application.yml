@@ -30,6 +30,10 @@ spring:
     elasticsearch:
       repositories:
         enabled: false
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 55MB
 
 management:
   endpoints:
@@ -58,3 +62,9 @@ app:
     secret: kb-qa-dev-secret-key-change-in-prod-32b
     access-token-expire-seconds: 7200
     refresh-token-expire-seconds: 604800
+  minio:
+    endpoint: https://
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket: companyomnibase
+    base-path: kb-qa

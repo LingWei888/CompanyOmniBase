@@ -11,6 +11,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -56,6 +57,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ApiResult<Void> handleAccessDenied(AccessDeniedException ex) {
         return ApiResult.fail(ResultCode.FORBIDDEN);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResult<Void> handleNoResource(NoResourceFoundException ex) {
+        return ApiResult.fail(ResultCode.NOT_FOUND.getCode(), "接口不存在: " + ex.getResourcePath());
     }
 
     @ExceptionHandler(Exception.class)

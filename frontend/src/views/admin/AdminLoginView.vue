@@ -1,37 +1,49 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminAuthStore } from '@/stores/adminAuth'
+import { useSiteStore } from '@/stores/site'
+import { useToast } from '@/composables/useToast'
 
 const auth = useAdminAuthStore()
+const site = useSiteStore()
 const router = useRouter()
 const route = useRoute()
+const toast = useToast()
 
 const username = ref('admin')
 const password = ref('admin123')
 const loading = ref(false)
-const error = ref('')
 
 async function onSubmit() {
-  error.value = ''
   loading.value = true
   try {
     await auth.login(username.value.trim(), password.value)
+    toast.success('登录成功')
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin/dashboard'
     await router.replace(redirect)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '登录失败'
+    toast.error(e instanceof Error ? e.message : '登录失败')
   } finally {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  site.load()
+})
 </script>
 
 <template>
   <div class="login-page">
     <form class="card" @submit.prevent="onSubmit">
-      <h1>站长登录</h1>
-      <p class="sub">进入知识库管理后台</p>
+      <div class="brand">
+        <img v-if="site.siteLogo" :src="site.siteLogo" alt="logo" />
+        <div>
+          <h1>{{ site.siteName }}</h1>
+          <p class="sub">{{ site.siteDescription || '进入知识库管理后台' }}</p>
+        </div>
+      </div>
 
       <label>
         用户名
@@ -41,8 +53,6 @@ async function onSubmit() {
         密码
         <input v-model="password" type="password" autocomplete="current-password" required />
       </label>
-
-      <p v-if="error" class="error">{{ error }}</p>
 
       <button type="submit" :disabled="loading">
         {{ loading ? '登录中…' : '登录' }}
@@ -55,15 +65,17 @@ async function onSubmit() {
 <style scoped>
 .login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
+  padding: 16px;
   background:
     radial-gradient(circle at top left, rgba(20, 20, 20, 0.08), transparent 40%),
     linear-gradient(160deg, #f4f4f5, #e9e9eb 55%, #f7f7f8);
 }
 
 .card {
-  width: min(400px, calc(100% - 32px));
+  width: min(420px, 100%);
   background: #fff;
   border: 1px solid #e4e4e7;
   border-radius: 16px;
@@ -73,14 +85,33 @@ async function onSubmit() {
   gap: 14px;
 }
 
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.brand img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid #eee;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
 h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: clamp(18px, 4.5vw, 22px);
+  line-height: 1.3;
 }
 
 .sub {
-  margin: -6px 0 4px;
+  margin: 4px 0 0;
   color: #71717a;
+  font-size: 13px;
 }
 
 label {
@@ -96,6 +127,7 @@ input {
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
+  width: 100%;
 }
 
 button {
@@ -112,12 +144,6 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.error {
-  margin: 0;
-  color: #b91c1c;
-  font-size: 13px;
 }
 
 .tip {

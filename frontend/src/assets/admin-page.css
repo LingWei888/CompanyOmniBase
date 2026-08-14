@@ -1,0 +1,194 @@
+.page {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.toolbar h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.toolbar p {
+  margin: 0;
+  color: #737373;
+  font-size: 13px;
+}
+
+.filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.filters select,
+.filters input {
+  min-width: 0;
+  flex: 1 1 160px;
+  max-width: 240px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  padding: 10px 8px;
+  vertical-align: top;
+}
+
+.table th {
+  color: #737373;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.empty {
+  text-align: center;
+  color: #a3a3a3;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.tag.on {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.tag.off {
+  background: #f5f5f5;
+  color: #737373;
+}
+
+.tag.pending {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.tag.ready {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.tag.failed {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.tag.processing {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  color: #404040;
+}
+
+label.switch {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font: inherit;
+  width: 100%;
+  max-width: 100%;
+}
+
+button {
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.primary {
+  background: #171717;
+  border-color: #171717;
+  color: #fff;
+}
+
+button.danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar > button,
+  .toolbar .primary {
+    width: 100%;
+  }
+
+  .filters select,
+  .filters input {
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .table {
+    min-width: 560px;
+    font-size: 13px;
+  }
+}

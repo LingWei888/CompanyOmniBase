@@ -32,14 +32,22 @@ const router = createRouter({
         {
           path: 'knowledge',
           name: 'admin-knowledge',
-          component: () => import('@/views/admin/AdminPlaceholderView.vue'),
-          props: { title: '知识库管理', tip: 'Day3 实现知识库 CRUD' },
+          component: () => import('@/views/admin/KnowledgeView.vue'),
         },
         {
           path: 'documents',
           name: 'admin-documents',
-          component: () => import('@/views/admin/AdminPlaceholderView.vue'),
-          props: { title: '文档管理', tip: 'Day3/Day11 实现文档上传与状态管理' },
+          component: () => import('@/views/admin/DocumentsView.vue'),
+        },
+        {
+          path: 'models',
+          name: 'admin-models',
+          component: () => import('@/views/admin/ModelsView.vue'),
+        },
+        {
+          path: 'settings',
+          name: 'admin-settings',
+          component: () => import('@/views/admin/SystemSettingsView.vue'),
         },
       ],
     },

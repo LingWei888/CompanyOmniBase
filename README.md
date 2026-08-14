@@ -1,8 +1,9 @@
 # 企业知识库智能问答
 
-技术架构：LangChain4j + Spring Boot 3 + Elasticsearch + RabbitMQ + MySQL + Vue3
-
-## 当前进度（Day1 ~ Day2）
+技术架构：LangChain4j + Spring Boot 3 + Elasticsearch + RabbitMQ + MySQL + Vue3 + MinIO
+![img.png](assets/image/img.png)
+## 当前进度（Day1 ~ Day3）
+前端聊天界面优化，仿企业级问答界面
 
 ### Day1 工程骨架与基础设施
 - 后端多模块：`common` / `admin` / `rag` / `ingest` / `api`
@@ -16,10 +17,10 @@
 - 管理端接口统一前缀 `/api/admin/**`，未登录返回 401
 - 默认站长：`admin` / `admin123`
 
-### 前端骨架
-- `/`：类 ChatGPT 聊天界面（左侧会话、右上角头像、底部输入）
-- `/admin/login`：站长登录
-- `/admin/**`：后台布局与占位页
+### Day3 知识库 / 文档 / 配置 / 模型
+- 表：`knowledge_base`、`kb_document`、`sys_config`、`llm_model`
+- 文档上传至 MinIO，状态默认 `PENDING`
+- 后台页面：知识库、文档、模型、系统设置（新增/编辑使用右侧抽屉）
 
 ---
 
@@ -95,4 +96,5 @@ curl -s http://localhost:8080/api/admin/dashboard/overview ^
 - Day5~6：解析切分与 ES 向量写入
 - Day7~8：RAG 问答与检索增强
 - Day9~11：聊天完善、SSE、后台运维
-- Day12~14：稳定性、评测、演示收尾
+- Day12~14：稳定性、
+- 
