@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.exitcode.richpeasants</groupId>
+        <artifactId>backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>admin</artifactId>
+    <name>admin</name>
+    <description>后台管理模块：登录鉴权与管理端 API</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>cn.exitcode.richpeasants</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+    </dependencies>
+</project>

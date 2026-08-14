@@ -14,9 +14,17 @@ frontend/.vscode/
 # 其他常见需要忽略的
 # ========================
 
-# 前端依赖目录 (虽然截图里没出现，但以防万一)
+# 前端依赖目录
 node_modules/
 frontend/node_modules/
+
+# 后端构建产物
+backend/**/target/
+
+# 环境与日志
+*.log
+.env
+.env.*
 
 # Mac 系统文件
 .DS_Store
