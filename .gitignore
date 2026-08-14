@@ -4,6 +4,7 @@
 
 # JetBrains IDE (如 IntelliJ IDEA, WebStorm)
 .idea/
+.run
 *.iml
 
 # VS Code
