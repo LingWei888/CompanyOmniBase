@@ -1,0 +1,22 @@
+# ========================
+# IDE & Editor 配置忽略
+# ========================
+
+# JetBrains IDE (如 IntelliJ IDEA, WebStorm)
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+frontend/.vscode/
+
+# ========================
+# 其他常见需要忽略的
+# ========================
+
+# 前端依赖目录 (虽然截图里没出现，但以防万一)
+node_modules/
+frontend/node_modules/
+
+# Mac 系统文件
+.DS_Store
