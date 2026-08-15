@@ -32,7 +32,7 @@
 - 系统设置：默认切分长度 / 重叠长度；文档可在「高级设置」覆盖
 - 管理端支持查看已解析正文、切分结果、`requeue` / `replace`
 
-### Day5 解析切分 + 向量化
+### Day5 + Day6 解析切分 + 向量化
 - Apache Tika 解析 PDF/Word 等；按字符窗口切分并落库片段
 - 解析正文表 `kb_document_parsed`，片段表 `kb_document_chunk`
 - OpenAI 兼容 Embedding → ES 索引 `kb_chunk_vector`（dense_vector + cosine）
