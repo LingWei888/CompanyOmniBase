@@ -2,7 +2,7 @@ import { http } from './http'
 import { unwrap, type ApiResult } from './types'
 
 export type UserPlan = 'FREE'
-export type UserRole = 'ADMIN' | 'USER'
+export type UserRole = 'USER'
 
 export interface AppUser {
   id: number

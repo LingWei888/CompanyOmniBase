@@ -6,6 +6,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+
 public interface KbDocumentRepository extends JpaRepository<KbDocument, Long> {
 
     Page<KbDocument> findByKbIdAndStatusOrderByIdDesc(Long kbId, DocumentStatus status, Pageable pageable);
@@ -17,4 +19,6 @@ public interface KbDocumentRepository extends JpaRepository<KbDocument, Long> {
     Page<KbDocument> findAllByOrderByIdDesc(Pageable pageable);
 
     long countByKbId(Long kbId);
+
+    List<KbDocument> findByStatusOrderByIdAsc(DocumentStatus status);
 }

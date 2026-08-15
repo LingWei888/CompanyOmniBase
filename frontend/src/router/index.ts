@@ -30,6 +30,11 @@ const router = createRouter({
           component: () => import('@/views/admin/AdminDashboardView.vue'),
         },
         {
+          path: 'users',
+          name: 'admin-users',
+          component: () => import('@/views/admin/UsersView.vue'),
+        },
+        {
           path: 'knowledge',
           name: 'admin-knowledge',
           component: () => import('@/views/admin/KnowledgeView.vue'),

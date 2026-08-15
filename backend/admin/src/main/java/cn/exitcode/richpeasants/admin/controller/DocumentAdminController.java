@@ -48,6 +48,18 @@ public class DocumentAdminController {
         return ApiResult.ok(documentAdminService.upload(kbId, title, file));
     }
 
+    @PostMapping("/{id}/requeue")
+    public ApiResult<KbDocument> requeue(@PathVariable Long id) {
+        return ApiResult.ok(documentAdminService.requeue(id));
+    }
+
+    @PostMapping("/{id}/replace")
+    public ApiResult<KbDocument> replace(@PathVariable Long id,
+                                         @RequestParam(required = false) String title,
+                                         @RequestParam("file") MultipartFile file) {
+        return ApiResult.ok(documentAdminService.replace(id, title, file));
+    }
+
     @PutMapping("/{id}")
     public ApiResult<KbDocument> update(@PathVariable Long id, @Valid @RequestBody DocumentUpdateRequest request) {
         return ApiResult.ok(documentAdminService.update(id, request));

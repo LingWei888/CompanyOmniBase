@@ -49,3 +49,19 @@ export async function deleteDocument(id: number) {
   const { data } = await http.delete<ApiResult<null>>(`/api/admin/documents/${id}`)
   unwrap(data)
 }
+
+export async function requeueDocument(id: number) {
+  const { data } = await http.post<ApiResult<KbDocument>>(`/api/admin/documents/${id}/requeue`)
+  return unwrap(data)
+}
+
+export async function replaceDocument(id: number, file: File, title?: string) {
+  const form = new FormData()
+  form.append('file', file)
+  if (title) form.append('title', title)
+  const { data } = await http.post<ApiResult<KbDocument>>(`/api/admin/documents/${id}/replace`, form, {
+    timeout: 120000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return unwrap(data)
+}

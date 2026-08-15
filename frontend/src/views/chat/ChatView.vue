@@ -59,7 +59,7 @@ const avatarLetter = computed(() => {
 
 const roleLabel = computed(() => {
   if (!auth.user) return '游客'
-  return auth.user.role === 'ADMIN' ? '管理员' : '注册用户'
+  return '注册用户'
 })
 
 const planLabel = computed(() => {

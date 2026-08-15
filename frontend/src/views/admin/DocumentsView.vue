@@ -7,6 +7,8 @@ import { listKnowledgeBaseOptions, type KnowledgeBase } from '@/api/knowledge'
 import {
   deleteDocument,
   listDocuments,
+  replaceDocument,
+  requeueDocument,
   updateDocument,
   uploadDocument,
   type DocumentStatus,
@@ -25,13 +27,19 @@ const total = ref(0)
 const totalPages = ref(0)
 
 const drawerOpen = ref(false)
-const mode = ref<'create' | 'edit'>('create')
+const mode = ref<'create' | 'edit' | 'replace'>('create')
 const saving = ref(false)
 const editing = ref<KbDocument | null>(null)
 const form = reactive({
   kbId: '',
   title: '',
   file: null as File | null,
+})
+
+const drawerTitle = computed(() => {
+  if (mode.value === 'create') return '上传文档'
+  if (mode.value === 'replace') return '替换上传'
+  return '编辑文档'
 })
 
 const kbNameMap = computed(() => {
@@ -91,10 +99,19 @@ function openEdit(row: KbDocument) {
   drawerOpen.value = true
 }
 
+function openReplace(row: KbDocument) {
+  mode.value = 'replace'
+  editing.value = row
+  form.kbId = String(row.kbId)
+  form.title = row.title
+  form.file = null
+  drawerOpen.value = true
+}
+
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   form.file = input.files?.[0] || null
-  if (form.file && !form.title) {
+  if (form.file && (mode.value === 'create' || !form.title)) {
     form.title = form.file.name.replace(/\.[^.]+$/, '')
   }
 }
@@ -107,6 +124,11 @@ async function save() {
       if (!form.file) throw new Error('请选择文件')
       await uploadDocument(Number(form.kbId), form.file, form.title.trim() || undefined)
       toast.success('上传成功')
+    } else if (mode.value === 'replace') {
+      if (!editing.value) throw new Error('文档不存在')
+      if (!form.file) throw new Error('请选择要替换的文件')
+      await replaceDocument(editing.value.id, form.file, form.title.trim() || undefined)
+      toast.success('替换成功，已重新入队')
     } else if (editing.value) {
       if (!form.title.trim()) throw new Error('请填写标题')
       await updateDocument(editing.value.id, form.title.trim())
@@ -136,6 +158,21 @@ async function remove(row: KbDocument) {
   }
 }
 
+async function requeue(row: KbDocument) {
+  if (!confirm(`确认将文档「${row.title}」重新投递入库队列？`)) return
+  try {
+    await requeueDocument(row.id)
+    toast.success('已重新投递')
+    await load()
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '投递失败')
+  }
+}
+
+function canRequeue(status: DocumentStatus) {
+  return status === 'PENDING' || status === 'FAILED' || status === 'PROCESSING'
+}
+
 function formatSize(sizeValue: number) {
   if (sizeValue < 1024) return `${sizeValue} B`
   if (sizeValue < 1024 * 1024) return `${(sizeValue / 1024).toFixed(1)} KB`
@@ -157,7 +194,7 @@ onMounted(async () => {
     <div class="toolbar">
       <div>
         <h2>文档管理</h2>
-        <p>上传到 MinIO，元数据入库，状态默认 PENDING</p>
+        <p>上传到 MinIO 后进入 PENDING，并异步投递 RabbitMQ 入库队列</p>
       </div>
       <button type="button" class="primary" @click="openCreate">上传文档</button>
     </div>
@@ -204,6 +241,14 @@ onMounted(async () => {
               </td>
               <td class="actions">
                 <button type="button" @click="openEdit(row)">编辑</button>
+                <button type="button" @click="openReplace(row)">替换上传</button>
+                <button
+                  v-if="canRequeue(row.status)"
+                  type="button"
+                  @click="requeue(row)"
+                >
+                  重新入库
+                </button>
                 <button type="button" class="danger" @click="remove(row)">删除</button>
               </td>
             </tr>
@@ -224,7 +269,7 @@ onMounted(async () => {
 
     <SideDrawer
       :open="drawerOpen"
-      :title="mode === 'create' ? '上传文档' : '编辑文档'"
+      :title="drawerTitle"
       @close="drawerOpen = false"
     >
       <label v-if="mode === 'create'">
@@ -234,11 +279,14 @@ onMounted(async () => {
           <option v-for="kb in kbs" :key="kb.id" :value="String(kb.id)">{{ kb.name }}</option>
         </select>
       </label>
+      <p v-if="mode === 'replace' && editing" class="hint">
+        将替换文档 #{{ editing.id }}「{{ editing.originalFilename }}」，并重新入队入库。
+      </p>
       <label>
         标题
         <input v-model="form.title" maxlength="256" placeholder="默认取文件名" />
       </label>
-      <label v-if="mode === 'create'">
+      <label v-if="mode === 'create' || mode === 'replace'">
         文件
         <input type="file" accept=".pdf,.doc,.docx,.md,.txt,.markdown" @change="onFileChange" />
       </label>

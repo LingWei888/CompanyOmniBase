@@ -25,6 +25,12 @@
   font-size: 13px;
 }
 
+.hint {
+  margin: 0 0 12px;
+  color: #737373;
+  font-size: 13px;
+}
+
 .filters {
   display: flex;
   gap: 10px;

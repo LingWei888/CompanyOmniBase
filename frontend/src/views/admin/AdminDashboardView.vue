@@ -21,7 +21,7 @@ onMounted(async () => {
 <template>
   <div class="panel">
     <h2>概览</h2>
-    <p class="desc">Day2 鉴权验收：此页需携带 ADMIN Token 才能访问。</p>
+    <p class="desc">站长账号登录后台；普通用户在「用户」菜单管理，不能登录前台聊天。</p>
 
     <div v-if="loading" class="state">加载中…</div>
     <div v-else-if="!overview" class="state">暂无数据</div>

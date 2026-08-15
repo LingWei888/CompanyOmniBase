@@ -4,7 +4,7 @@ export interface AdminUser {
   id: number
   username: string
   nickname: string
-  role: 'ADMIN' | 'USER'
+  role: 'ADMIN'
 }
 
 export interface LoginResult {

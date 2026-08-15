@@ -1,10 +1,7 @@
 package cn.exitcode.richpeasants.common.entity;
 
-import cn.exitcode.richpeasants.common.enums.UserPlan;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -14,12 +11,9 @@ import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
 
-/**
- * 前台普通用户（与站长表 admin_user 分离）。
- */
 @Entity
-@Table(name = "sys_user")
-public class SysUser {
+@Table(name = "admin_user")
+public class AdminUser {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -33,13 +27,6 @@ public class SysUser {
 
     @Column(length = 64)
     private String nickname;
-
-    @Column(name = "avatar_url", length = 512)
-    private String avatarUrl;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
-    private UserPlan plan = UserPlan.FREE;
 
     @Column(nullable = false)
     private Boolean enabled = true;
@@ -55,9 +42,6 @@ public class SysUser {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
-        if (this.plan == null) {
-            this.plan = UserPlan.FREE;
-        }
     }
 
     @PreUpdate
@@ -95,22 +79,6 @@ public class SysUser {
 
     public void setNickname(String nickname) {
         this.nickname = nickname;
-    }
-
-    public String getAvatarUrl() {
-        return avatarUrl;
-    }
-
-    public void setAvatarUrl(String avatarUrl) {
-        this.avatarUrl = avatarUrl;
-    }
-
-    public UserPlan getPlan() {
-        return plan;
-    }
-
-    public void setPlan(UserPlan plan) {
-        this.plan = plan;
     }
 
     public Boolean getEnabled() {

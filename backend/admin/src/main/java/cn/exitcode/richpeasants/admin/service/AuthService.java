@@ -2,48 +2,48 @@ package cn.exitcode.richpeasants.admin.service;
 
 import cn.exitcode.richpeasants.admin.dto.LoginRequest;
 import cn.exitcode.richpeasants.admin.dto.LoginResponse;
-import cn.exitcode.richpeasants.common.entity.SysUser;
+import cn.exitcode.richpeasants.common.entity.AdminUser;
 import cn.exitcode.richpeasants.common.enums.UserRole;
 import cn.exitcode.richpeasants.common.exception.BusinessException;
-import cn.exitcode.richpeasants.common.repository.SysUserRepository;
+import cn.exitcode.richpeasants.common.repository.AdminUserRepository;
 import cn.exitcode.richpeasants.common.result.ResultCode;
 import cn.exitcode.richpeasants.common.security.JwtProperties;
 import cn.exitcode.richpeasants.common.security.JwtTokenProvider;
 import cn.exitcode.richpeasants.common.security.LoginUser;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class AuthService {
 
-    private final AuthenticationManager authenticationManager;
+    private final AdminUserRepository adminUserRepository;
+    private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
-    private final SysUserRepository sysUserRepository;
 
-    public AuthService(AuthenticationManager authenticationManager,
+    public AuthService(AdminUserRepository adminUserRepository,
+                       PasswordEncoder passwordEncoder,
                        JwtTokenProvider jwtTokenProvider,
-                       JwtProperties jwtProperties,
-                       SysUserRepository sysUserRepository) {
-        this.authenticationManager = authenticationManager;
+                       JwtProperties jwtProperties) {
+        this.adminUserRepository = adminUserRepository;
+        this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.jwtProperties = jwtProperties;
-        this.sysUserRepository = sysUserRepository;
     }
 
     public LoginResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
-        LoginUser loginUser = (LoginUser) authentication.getPrincipal();
-        if (loginUser.getRole() != UserRole.ADMIN) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "非管理员账号无法登录后台");
+        AdminUser admin = adminUserRepository.findByUsername(request.getUsername().trim())
+                .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误"));
+        if (!Boolean.TRUE.equals(admin.getEnabled())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "账号已禁用");
         }
-        return buildTokenResponse(loginUser.getUserId(), loginUser.getUsername(), loginUser.getRole());
+        if (!passwordEncoder.matches(request.getPassword(), admin.getPassword())) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
+        }
+        return buildTokenResponse(admin);
     }
 
     public LoginResponse refresh(String refreshToken) {
@@ -52,46 +52,50 @@ public class AuthService {
             if (!jwtTokenProvider.isTokenType(claims, JwtTokenProvider.TYPE_REFRESH)) {
                 throw new BusinessException(ResultCode.UNAUTHORIZED, "无效的刷新令牌");
             }
+            String role = claims.get(JwtTokenProvider.CLAIM_ROLE, String.class);
+            if (!UserRole.ADMIN.name().equals(role)) {
+                throw new BusinessException(ResultCode.FORBIDDEN, "非站长令牌");
+            }
             Long userId = claims.get(JwtTokenProvider.CLAIM_USER_ID, Long.class);
-            SysUser user = sysUserRepository.findById(userId)
+            AdminUser admin = adminUserRepository.findById(userId)
                     .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在"));
-            if (!Boolean.TRUE.equals(user.getEnabled()) || user.getRole() != UserRole.ADMIN) {
+            if (!Boolean.TRUE.equals(admin.getEnabled())) {
                 throw new BusinessException(ResultCode.FORBIDDEN, "账号不可用");
             }
-            return buildTokenResponse(user.getId(), user.getUsername(), user.getRole());
+            return buildTokenResponse(admin);
         } catch (JwtException | IllegalArgumentException ex) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "刷新令牌无效或已过期");
         }
     }
 
     public LoginResponse.UserInfo currentUser(LoginUser loginUser) {
-        SysUser user = sysUserRepository.findById(loginUser.getUserId())
+        if (loginUser.getRole() != UserRole.ADMIN) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "非站长账号");
+        }
+        AdminUser admin = adminUserRepository.findById(loginUser.getUserId())
                 .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED));
-        LoginResponse.UserInfo info = new LoginResponse.UserInfo();
-        info.setId(user.getId());
-        info.setUsername(user.getUsername());
-        info.setNickname(user.getNickname());
-        info.setRole(user.getRole());
-        return info;
+        return toUserInfo(admin);
     }
 
-    private LoginResponse buildTokenResponse(Long userId, String username, UserRole role) {
-        String accessToken = jwtTokenProvider.createAccessToken(userId, username, role);
-        String refreshToken = jwtTokenProvider.createRefreshToken(userId, username, role);
-        SysUser user = sysUserRepository.findById(userId).orElse(null);
-
-        LoginResponse.UserInfo info = new LoginResponse.UserInfo();
-        info.setId(userId);
-        info.setUsername(username);
-        info.setNickname(user != null ? user.getNickname() : username);
-        info.setRole(role);
+    private LoginResponse buildTokenResponse(AdminUser admin) {
+        String accessToken = jwtTokenProvider.createAccessToken(admin.getId(), admin.getUsername(), UserRole.ADMIN);
+        String refreshToken = jwtTokenProvider.createRefreshToken(admin.getId(), admin.getUsername(), UserRole.ADMIN);
 
         LoginResponse response = new LoginResponse();
         response.setAccessToken(accessToken);
         response.setRefreshToken(refreshToken);
         response.setTokenType("Bearer");
         response.setExpiresIn(jwtProperties.getAccessTokenExpireSeconds());
-        response.setUser(info);
+        response.setUser(toUserInfo(admin));
         return response;
+    }
+
+    private LoginResponse.UserInfo toUserInfo(AdminUser admin) {
+        LoginResponse.UserInfo info = new LoginResponse.UserInfo();
+        info.setId(admin.getId());
+        info.setUsername(admin.getUsername());
+        info.setNickname(StringUtils.hasText(admin.getNickname()) ? admin.getNickname() : admin.getUsername());
+        info.setRole(UserRole.ADMIN);
+        return info;
     }
 }

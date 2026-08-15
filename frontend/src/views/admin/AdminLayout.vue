@@ -65,6 +65,7 @@ onUnmounted(() => {
       </div>
       <nav>
         <RouterLink to="/admin/dashboard" @click="closeMenu">概览</RouterLink>
+        <RouterLink to="/admin/users" @click="closeMenu">用户</RouterLink>
         <RouterLink to="/admin/knowledge" @click="closeMenu">知识库</RouterLink>
         <RouterLink to="/admin/documents" @click="closeMenu">文档</RouterLink>
         <RouterLink to="/admin/models" @click="closeMenu">模型</RouterLink>

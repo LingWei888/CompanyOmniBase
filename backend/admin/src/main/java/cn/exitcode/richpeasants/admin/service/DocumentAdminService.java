@@ -9,6 +9,7 @@ import cn.exitcode.richpeasants.common.repository.KnowledgeBaseRepository;
 import cn.exitcode.richpeasants.common.result.PageResult;
 import cn.exitcode.richpeasants.common.result.ResultCode;
 import cn.exitcode.richpeasants.common.storage.MinioStorageService;
+import cn.exitcode.richpeasants.ingest.mq.DocumentIngestPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -28,13 +29,16 @@ public class DocumentAdminService {
     private final KbDocumentRepository kbDocumentRepository;
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final MinioStorageService minioStorageService;
+    private final DocumentIngestPublisher documentIngestPublisher;
 
     public DocumentAdminService(KbDocumentRepository kbDocumentRepository,
                                 KnowledgeBaseRepository knowledgeBaseRepository,
-                                MinioStorageService minioStorageService) {
+                                MinioStorageService minioStorageService,
+                                DocumentIngestPublisher documentIngestPublisher) {
         this.kbDocumentRepository = kbDocumentRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.minioStorageService = minioStorageService;
+        this.documentIngestPublisher = documentIngestPublisher;
     }
 
     public PageResult<KbDocument> page(Long kbId, DocumentStatus status, int page, int size) {
@@ -74,7 +78,61 @@ public class DocumentAdminService {
         document.setContentType(file.getContentType());
         document.setFileSize(file.getSize());
         document.setStatus(DocumentStatus.PENDING);
-        return kbDocumentRepository.save(document);
+        KbDocument saved = kbDocumentRepository.save(document);
+        documentIngestPublisher.publishAfterCommit(saved);
+        return saved;
+    }
+
+    /**
+     * 重新投递入库队列（PENDING / FAILED / PROCESSING 均可）。
+     */
+    @Transactional
+    public KbDocument requeue(Long id) {
+        KbDocument document = get(id);
+        if (document.getStatus() == DocumentStatus.READY) {
+            throw new BusinessException(ResultCode.CONFLICT, "文档已入库完成，无需重新投递");
+        }
+        document.setStatus(DocumentStatus.PENDING);
+        document.setErrorMessage(null);
+        KbDocument saved = kbDocumentRepository.save(document);
+        documentIngestPublisher.publishAfterCommit(saved);
+        return saved;
+    }
+
+    /**
+     * 替换上传：保留同一文档 ID，换新文件后重新入队。
+     * 旧 MinIO 对象会删除；ES 向量清理留给 Day5（按 documentId 删除）。
+     */
+    @Transactional
+    public KbDocument replace(Long id, String title, MultipartFile file) {
+        KbDocument document = get(id);
+        validateFile(file);
+
+        String oldObjectKey = document.getObjectKey();
+        String original = file.getOriginalFilename() == null ? "file" : file.getOriginalFilename();
+        String newObjectKey = minioStorageService.upload(document.getKbId(), file);
+
+        if (StringUtils.hasText(title)) {
+            document.setTitle(title.trim());
+        }
+        document.setOriginalFilename(original);
+        document.setObjectKey(newObjectKey);
+        document.setContentType(file.getContentType());
+        document.setFileSize(file.getSize());
+        document.setStatus(DocumentStatus.PENDING);
+        document.setErrorMessage(null);
+        // TODO Day5: 按 documentId 删除 ES 中旧 chunk/向量后再入库
+        KbDocument saved = kbDocumentRepository.save(document);
+        documentIngestPublisher.publishAfterCommit(saved);
+
+        if (StringUtils.hasText(oldObjectKey) && !oldObjectKey.equals(newObjectKey)) {
+            try {
+                minioStorageService.delete(oldObjectKey);
+            } catch (BusinessException ignored) {
+                // 新文件已落库并入队，旧对象残留不阻断替换
+            }
+        }
+        return saved;
     }
 
     @Transactional
@@ -88,6 +146,7 @@ public class DocumentAdminService {
     public void delete(Long id) {
         KbDocument document = get(id);
         String objectKey = document.getObjectKey();
+        // TODO Day5: 同步删除该文档在 ES 中的向量
         minioStorageService.delete(objectKey);
         kbDocumentRepository.delete(document);
     }

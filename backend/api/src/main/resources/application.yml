@@ -24,6 +24,11 @@ spring:
     port: 5672
     username: guest
     password: guest
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 10
+        default-requeue-rejected: false
   elasticsearch:
     uris: http://localhost:9200
   data:
