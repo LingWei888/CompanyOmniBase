@@ -50,6 +50,7 @@ public class KnowledgeBaseService {
         entity.setName(name);
         entity.setDescription(request.getDescription());
         entity.setEnabled(request.getEnabled() == null || request.getEnabled());
+        applyChunkDefaults(entity, request);
         return knowledgeBaseRepository.save(entity);
     }
 
@@ -65,6 +66,7 @@ public class KnowledgeBaseService {
         if (request.getEnabled() != null) {
             entity.setEnabled(request.getEnabled());
         }
+        applyChunkDefaults(entity, request);
         return knowledgeBaseRepository.save(entity);
     }
 
@@ -76,6 +78,28 @@ public class KnowledgeBaseService {
             throw new BusinessException(ResultCode.CONFLICT, "知识库下仍有文档，请先删除文档");
         }
         knowledgeBaseRepository.delete(entity);
+    }
+
+    private void applyChunkDefaults(KnowledgeBase entity, KnowledgeBaseRequest request) {
+        Integer size = request.getDefaultChunkSize();
+        Integer overlap = request.getDefaultChunkOverlap();
+        if (size == null && overlap == null) {
+            entity.setDefaultChunkSize(null);
+            entity.setDefaultChunkOverlap(null);
+            return;
+        }
+        // 只填一侧时，另一侧也必须合理；未填侧先不强制，保存时允许单侧为空，解析时再回退系统
+        if (size != null && (size < 100 || size > 8000)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "知识库切分长度需在 100-8000 之间");
+        }
+        if (overlap != null && (overlap < 0 || overlap > 4000)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "知识库重叠长度需在 0-4000 之间");
+        }
+        if (size != null && overlap != null && overlap >= size) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "知识库重叠长度必须小于切分长度");
+        }
+        entity.setDefaultChunkSize(size);
+        entity.setDefaultChunkOverlap(overlap);
     }
 
     private int normalizeSize(int size) {

@@ -3,14 +3,17 @@ import { unwrap, type ApiResult } from './types'
 import type { PageResult } from './page'
 
 export type LlmProtocol = 'OPENAI'
+export type LlmModelPurpose = 'CHAT' | 'EMBEDDING'
 
 export interface LlmModel {
   id: number
   name: string
   protocol: LlmProtocol
+  purpose: LlmModelPurpose
   baseUrl: string
   apiKey: string
   modelName?: string
+  embeddingDimension?: number | null
   enabled: boolean
   remark?: string
   createdAt?: string
@@ -20,16 +23,18 @@ export interface LlmModel {
 export interface LlmModelPayload {
   name: string
   protocol: LlmProtocol
+  purpose: LlmModelPurpose
   baseUrl: string
   apiKey: string
   modelName?: string
+  embeddingDimension?: number | null
   enabled?: boolean
   remark?: string
 }
 
-export async function listModels(page = 1, size = 10) {
+export async function listModels(page = 1, size = 10, purpose?: LlmModelPurpose) {
   const { data } = await http.get<ApiResult<PageResult<LlmModel>>>('/api/admin/models', {
-    params: { page, size },
+    params: { page, size, purpose },
   })
   return unwrap(data)
 }

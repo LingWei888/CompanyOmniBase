@@ -28,6 +28,14 @@ public class KnowledgeBase {
     @Column(nullable = false)
     private Boolean enabled = true;
 
+    /** 知识库默认切分长度；null 表示使用系统默认 */
+    @Column(name = "default_chunk_size")
+    private Integer defaultChunkSize;
+
+    /** 知识库默认重叠长度；null 表示使用系统默认 */
+    @Column(name = "default_chunk_overlap")
+    private Integer defaultChunkOverlap;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -76,6 +84,22 @@ public class KnowledgeBase {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Integer getDefaultChunkSize() {
+        return defaultChunkSize;
+    }
+
+    public void setDefaultChunkSize(Integer defaultChunkSize) {
+        this.defaultChunkSize = defaultChunkSize;
+    }
+
+    public Integer getDefaultChunkOverlap() {
+        return defaultChunkOverlap;
+    }
+
+    public void setDefaultChunkOverlap(Integer defaultChunkOverlap) {
+        this.defaultChunkOverlap = defaultChunkOverlap;
     }
 
     public LocalDateTime getCreatedAt() {

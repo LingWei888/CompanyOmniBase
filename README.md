@@ -21,15 +21,22 @@
 
 ### Day3 知识库 / 文档 / 配置 / 模型
 - 表：`knowledge_base`、`kb_document`、`sys_config`、`llm_model`
+- `llm_model.purpose`：`CHAT`（对话）/ `EMBEDDING`（向量化）；前台 `/api/public/models` 仅返回已启用的对话模型
 - 文档上传至 MinIO，状态默认 `PENDING`
 - 后台页面：知识库、文档、模型、系统设置（新增/编辑使用右侧抽屉）
 
 ### Day4 RabbitMQ 异步入库
 - 上传成功后事务提交投递入库队列（exchange/queue + DLQ）
-- 消费者将文档状态 `PENDING → PROCESSING`（解析切分留给 Day5）
-- 启动补偿：扫描仍为 `PENDING` 的文档重新投递
-- 管理端支持 `POST /api/admin/documents/{id}/requeue` 重新入库
-- 管理端支持 `POST /api/admin/documents/{id}/replace` 替换上传（换文件后重回 PENDING 入队；旧向量清理留给 Day5）
+- 消费者：`PENDING → PARSING → CHUNKING → WAITING_EMBEDDING → EMBEDDING → READY`
+- 启动补偿：扫描仍为 `PENDING` / `WAITING_EMBEDDING` 的文档重新投递
+- 系统设置：默认切分长度 / 重叠长度；文档可在「高级设置」覆盖
+- 管理端支持查看已解析正文、切分结果、`requeue` / `replace`
+
+### Day5 解析切分 + 向量化
+- Apache Tika 解析 PDF/Word 等；按字符窗口切分并落库片段
+- 解析正文表 `kb_document_parsed`，片段表 `kb_document_chunk`
+- OpenAI 兼容 Embedding → ES 索引 `kb_chunk_vector`（dense_vector + cosine）
+- Embedding 模型需配置 `purpose=EMBEDDING` 与 `embedding_dimension`
 
 ---
 
@@ -100,7 +107,6 @@ curl -s http://localhost:8080/api/admin/dashboard/overview ^
 
 ## 后续计划（摘要）
 
-- Day5~6：解析切分与 ES 向量写入（PROCESSING → READY/FAILED）
-- Day7~8：RAG 问答与检索增强
+- Day7~8：RAG 问答与检索增强（ES kNN）
 - Day9~11：聊天完善、SSE、后台运维
 - Day12~14：稳定性与验收

@@ -1,6 +1,9 @@
 package cn.exitcode.richpeasants.admin.dto;
 
+import cn.exitcode.richpeasants.common.enums.LlmModelPurpose;
 import cn.exitcode.richpeasants.common.enums.LlmProtocol;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -14,6 +17,9 @@ public class LlmModelRequest {
     @NotNull(message = "对接方式不能为空")
     private LlmProtocol protocol = LlmProtocol.OPENAI;
 
+    @NotNull(message = "模型用途不能为空")
+    private LlmModelPurpose purpose = LlmModelPurpose.CHAT;
+
     @NotBlank(message = "API Base URL 不能为空")
     @Size(max = 512, message = "URL 不能超过512字符")
     private String baseUrl;
@@ -24,6 +30,11 @@ public class LlmModelRequest {
 
     @Size(max = 128, message = "模型标识不能超过128字符")
     private String modelName;
+
+    /** Embedding 用途必填；对话模型可为空 */
+    @Min(value = 64, message = "向量维度至少 64")
+    @Max(value = 8192, message = "向量维度不能超过 8192")
+    private Integer embeddingDimension;
 
     private Boolean enabled = true;
 
@@ -44,6 +55,14 @@ public class LlmModelRequest {
 
     public void setProtocol(LlmProtocol protocol) {
         this.protocol = protocol;
+    }
+
+    public LlmModelPurpose getPurpose() {
+        return purpose;
+    }
+
+    public void setPurpose(LlmModelPurpose purpose) {
+        this.purpose = purpose;
     }
 
     public String getBaseUrl() {
@@ -68,6 +87,14 @@ public class LlmModelRequest {
 
     public void setModelName(String modelName) {
         this.modelName = modelName;
+    }
+
+    public Integer getEmbeddingDimension() {
+        return embeddingDimension;
+    }
+
+    public void setEmbeddingDimension(Integer embeddingDimension) {
+        this.embeddingDimension = embeddingDimension;
     }
 
     public Boolean getEnabled() {

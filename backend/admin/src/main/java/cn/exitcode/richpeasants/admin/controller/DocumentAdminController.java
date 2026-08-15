@@ -1,5 +1,9 @@
 package cn.exitcode.richpeasants.admin.controller;
 
+import cn.exitcode.richpeasants.admin.dto.ChunkDefaultsResponse;
+import cn.exitcode.richpeasants.admin.dto.DocumentChunkDetailResponse;
+import cn.exitcode.richpeasants.admin.dto.DocumentChunkItemResponse;
+import cn.exitcode.richpeasants.admin.dto.DocumentParsedTextResponse;
 import cn.exitcode.richpeasants.admin.dto.DocumentUpdateRequest;
 import cn.exitcode.richpeasants.admin.service.DocumentAdminService;
 import cn.exitcode.richpeasants.common.entity.KbDocument;
@@ -36,16 +40,41 @@ public class DocumentAdminController {
         return ApiResult.ok(documentAdminService.page(kbId, status, page, size));
     }
 
+    @GetMapping("/chunk-defaults")
+    public ApiResult<ChunkDefaultsResponse> chunkDefaults(@RequestParam(required = false) Long kbId) {
+        return ApiResult.ok(documentAdminService.chunkDefaults(kbId));
+    }
+
     @GetMapping("/{id}")
     public ApiResult<KbDocument> detail(@PathVariable Long id) {
         return ApiResult.ok(documentAdminService.get(id));
     }
 
+    @GetMapping("/{id}/parsed-text")
+    public ApiResult<DocumentParsedTextResponse> parsedText(@PathVariable Long id) {
+        return ApiResult.ok(documentAdminService.getParsedText(id));
+    }
+
+    @GetMapping("/{id}/chunks")
+    public ApiResult<PageResult<DocumentChunkItemResponse>> chunks(@PathVariable Long id,
+                                                                   @RequestParam(defaultValue = "1") int page,
+                                                                   @RequestParam(defaultValue = "10") int size) {
+        return ApiResult.ok(documentAdminService.pageChunks(id, page, size));
+    }
+
+    @GetMapping("/{id}/chunks/{chunkId}")
+    public ApiResult<DocumentChunkDetailResponse> chunkDetail(@PathVariable Long id,
+                                                              @PathVariable Long chunkId) {
+        return ApiResult.ok(documentAdminService.getChunk(id, chunkId));
+    }
+
     @PostMapping("/upload")
     public ApiResult<KbDocument> upload(@RequestParam Long kbId,
                                         @RequestParam(required = false) String title,
+                                        @RequestParam(required = false) Integer chunkSize,
+                                        @RequestParam(required = false) Integer chunkOverlap,
                                         @RequestParam("file") MultipartFile file) {
-        return ApiResult.ok(documentAdminService.upload(kbId, title, file));
+        return ApiResult.ok(documentAdminService.upload(kbId, title, file, chunkSize, chunkOverlap));
     }
 
     @PostMapping("/{id}/requeue")
@@ -56,8 +85,10 @@ public class DocumentAdminController {
     @PostMapping("/{id}/replace")
     public ApiResult<KbDocument> replace(@PathVariable Long id,
                                          @RequestParam(required = false) String title,
+                                         @RequestParam(required = false) Integer chunkSize,
+                                         @RequestParam(required = false) Integer chunkOverlap,
                                          @RequestParam("file") MultipartFile file) {
-        return ApiResult.ok(documentAdminService.replace(id, title, file));
+        return ApiResult.ok(documentAdminService.replace(id, title, file, chunkSize, chunkOverlap));
     }
 
     @PutMapping("/{id}")

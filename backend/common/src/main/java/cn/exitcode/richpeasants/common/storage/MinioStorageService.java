@@ -2,6 +2,7 @@ package cn.exitcode.richpeasants.common.storage;
 
 import cn.exitcode.richpeasants.common.exception.BusinessException;
 import cn.exitcode.richpeasants.common.result.ResultCode;
+import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -69,11 +71,7 @@ public class MinioStorageService {
         if (!StringUtils.hasText(objectKey)) {
             return;
         }
-        String key = objectKey;
-        String prefix = buildPublicUrl("");
-        if (key.startsWith(prefix)) {
-            key = key.substring(prefix.length());
-        }
+        String key = normalizeObjectKey(objectKey);
         try {
             minioClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(properties.getBucket())
@@ -84,6 +82,26 @@ public class MinioStorageService {
         }
     }
 
+    /**
+     * 下载对象为字节数组（入库解析用）。
+     */
+    public byte[] downloadBytes(String objectKey) {
+        if (!StringUtils.hasText(objectKey)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "对象路径为空");
+        }
+        String key = normalizeObjectKey(objectKey);
+        try (InputStream stream = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(properties.getBucket())
+                .object(key)
+                .build());
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            stream.transferTo(output);
+            return output.toByteArray();
+        } catch (Exception ex) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "从 MinIO 下载文件失败: " + ex.getMessage());
+        }
+    }
+
     public String buildPublicUrl(String objectKey) {
         String endpoint = trimTrailingSlash(properties.getEndpoint());
         String bucket = properties.getBucket();
@@ -91,6 +109,15 @@ public class MinioStorageService {
             return endpoint + "/" + bucket + "/";
         }
         return endpoint + "/" + bucket + "/" + objectKey.replaceAll("^/+", "");
+    }
+
+    private String normalizeObjectKey(String objectKey) {
+        String key = objectKey;
+        String prefix = buildPublicUrl("");
+        if (key.startsWith(prefix)) {
+            key = key.substring(prefix.length());
+        }
+        return key.replaceAll("^/+", "");
     }
 
     private void putObject(String objectKey, MultipartFile file) {

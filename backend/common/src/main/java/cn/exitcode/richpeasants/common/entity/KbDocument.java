@@ -1,6 +1,7 @@
 package cn.exitcode.richpeasants.common.entity;
 
 import cn.exitcode.richpeasants.common.enums.DocumentStatus;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,6 +12,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 import java.time.LocalDateTime;
 
@@ -47,6 +49,18 @@ public class KbDocument {
     @Column(name = "error_message", length = 1024)
     private String errorMessage;
 
+    @Column(name = "chunk_size", nullable = false)
+    private Integer chunkSize = 800;
+
+    @Column(name = "chunk_overlap", nullable = false)
+    private Integer chunkOverlap = 100;
+
+    @Column(name = "parsed_char_count", nullable = false)
+    private Integer parsedCharCount = 0;
+
+    @Column(name = "chunk_count", nullable = false)
+    private Integer chunkCount = 0;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -58,11 +72,30 @@ public class KbDocument {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
+        if (this.chunkSize == null) {
+            this.chunkSize = 800;
+        }
+        if (this.chunkOverlap == null) {
+            this.chunkOverlap = 100;
+        }
+        if (this.parsedCharCount == null) {
+            this.parsedCharCount = 0;
+        }
+        if (this.chunkCount == null) {
+            this.chunkCount = 0;
+        }
     }
 
     @PreUpdate
     public void preUpdate() {
         this.updatedAt = LocalDateTime.now();
+    }
+
+    /** 是否已完成文字解析（可查看解析正文）。 */
+    @Transient
+    @JsonProperty("parsedTextAvailable")
+    public boolean isParsedTextAvailable() {
+        return parsedCharCount != null && parsedCharCount > 0;
     }
 
     public Long getId() {
@@ -135,6 +168,38 @@ public class KbDocument {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Integer getChunkSize() {
+        return chunkSize;
+    }
+
+    public void setChunkSize(Integer chunkSize) {
+        this.chunkSize = chunkSize;
+    }
+
+    public Integer getChunkOverlap() {
+        return chunkOverlap;
+    }
+
+    public void setChunkOverlap(Integer chunkOverlap) {
+        this.chunkOverlap = chunkOverlap;
+    }
+
+    public Integer getParsedCharCount() {
+        return parsedCharCount;
+    }
+
+    public void setParsedCharCount(Integer parsedCharCount) {
+        this.parsedCharCount = parsedCharCount;
+    }
+
+    public Integer getChunkCount() {
+        return chunkCount;
+    }
+
+    public void setChunkCount(Integer chunkCount) {
+        this.chunkCount = chunkCount;
     }
 
     public LocalDateTime getCreatedAt() {

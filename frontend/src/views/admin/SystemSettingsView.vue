@@ -14,6 +14,8 @@ const form = reactive({
   site_description: '',
   site_logo: '',
   contact_email: '',
+  ingest_chunk_size: '800',
+  ingest_chunk_overlap: '100',
 })
 
 async function load() {
@@ -25,6 +27,8 @@ async function load() {
     form.site_description = map.get('site_description') || ''
     form.site_logo = map.get('site_logo') || ''
     form.contact_email = map.get('contact_email') || ''
+    form.ingest_chunk_size = map.get('ingest_chunk_size') || '800'
+    form.ingest_chunk_overlap = map.get('ingest_chunk_overlap') || '100'
   } catch (e) {
     toast.error(e instanceof Error ? e.message : '加载失败')
   } finally {
@@ -51,6 +55,21 @@ async function onLogoChange(event: Event) {
 }
 
 async function save() {
+  const chunkSize = Number(form.ingest_chunk_size)
+  const overlap = Number(form.ingest_chunk_overlap)
+  if (!Number.isFinite(chunkSize) || chunkSize < 100 || chunkSize > 8000) {
+    toast.error('默认切分长度需在 100-8000 之间')
+    return
+  }
+  if (!Number.isFinite(overlap) || overlap < 0 || overlap > 4000) {
+    toast.error('默认重叠长度需在 0-4000 之间')
+    return
+  }
+  if (overlap >= chunkSize) {
+    toast.error('默认重叠长度必须小于切分长度')
+    return
+  }
+
   saving.value = true
   try {
     const items: SysConfigItem[] = [
@@ -58,6 +77,16 @@ async function save() {
       { configKey: 'site_description', configValue: form.site_description, remark: '站点描述' },
       { configKey: 'site_logo', configValue: form.site_logo, remark: '站点 Logo URL' },
       { configKey: 'contact_email', configValue: form.contact_email, remark: '联系邮箱' },
+      {
+        configKey: 'ingest_chunk_size',
+        configValue: String(chunkSize),
+        remark: '默认切分长度（字符）',
+      },
+      {
+        configKey: 'ingest_chunk_overlap',
+        configValue: String(overlap),
+        remark: '默认切分重叠长度（字符）',
+      },
     ]
     await saveSysConfigs(items)
     await site.refresh()
@@ -77,7 +106,7 @@ onMounted(load)
     <div class="toolbar">
       <div>
         <h2>系统设置</h2>
-        <p>站点基础信息，Logo 上传至 MinIO</p>
+        <p>站点信息与文档入库默认切分参数</p>
       </div>
       <button type="button" class="primary" :disabled="saving || loading" @click="save">
         {{ saving ? '保存中…' : '保存设置' }}
@@ -87,6 +116,7 @@ onMounted(load)
     <p v-if="loading">加载中…</p>
 
     <div v-else class="form">
+      <h3 class="section-title">站点信息</h3>
       <label>
         站点名称
         <input v-model="form.site_name" />
@@ -113,13 +143,30 @@ onMounted(load)
         联系邮箱
         <input v-model="form.contact_email" />
       </label>
+
+      <h3 class="section-title">文档入库默认切分</h3>
+      <p class="hint">上传文档时高级设置会预填这些值，也可按文档单独修改。</p>
+      <label>
+        默认切分长度（字符）
+        <input v-model="form.ingest_chunk_size" type="number" min="100" max="8000" />
+      </label>
+      <label>
+        默认重叠长度（字符）
+        <input v-model="form.ingest_chunk_overlap" type="number" min="0" max="4000" />
+      </label>
     </div>
   </div>
 </template>
 
 <style scoped>
 .form {
-  max-width: 640px;
+  max-width: 560px;
+}
+
+.section-title {
+  margin: 8px 0 12px;
+  font-size: 15px;
+  color: #262626;
 }
 
 .logo-preview {
@@ -127,12 +174,12 @@ onMounted(load)
 }
 
 .logo-preview img {
-  max-width: min(160px, 100%);
+  max-width: 160px;
   max-height: 80px;
   object-fit: contain;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  background: #fafafa;
+  background: #fff;
   padding: 8px;
 }
 

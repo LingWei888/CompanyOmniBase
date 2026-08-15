@@ -1,5 +1,6 @@
 package cn.exitcode.richpeasants.common.entity;
 
+import cn.exitcode.richpeasants.common.enums.LlmModelPurpose;
 import cn.exitcode.richpeasants.common.enums.LlmProtocol;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -29,6 +30,10 @@ public class LlmModel {
     @Column(nullable = false, length = 32)
     private LlmProtocol protocol;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private LlmModelPurpose purpose = LlmModelPurpose.CHAT;
+
     @Column(name = "base_url", nullable = false, length = 512)
     private String baseUrl;
 
@@ -37,6 +42,10 @@ public class LlmModel {
 
     @Column(name = "model_name", length = 128)
     private String modelName;
+
+    /** Embedding 向量维度；仅 purpose=EMBEDDING 时使用 */
+    @Column(name = "embedding_dimension")
+    private Integer embeddingDimension;
 
     @Column(nullable = false)
     private Boolean enabled = true;
@@ -55,6 +64,9 @@ public class LlmModel {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
+        if (this.purpose == null) {
+            this.purpose = LlmModelPurpose.CHAT;
+        }
     }
 
     @PreUpdate
@@ -86,6 +98,14 @@ public class LlmModel {
         this.protocol = protocol;
     }
 
+    public LlmModelPurpose getPurpose() {
+        return purpose;
+    }
+
+    public void setPurpose(LlmModelPurpose purpose) {
+        this.purpose = purpose;
+    }
+
     public String getBaseUrl() {
         return baseUrl;
     }
@@ -108,6 +128,14 @@ public class LlmModel {
 
     public void setModelName(String modelName) {
         this.modelName = modelName;
+    }
+
+    public Integer getEmbeddingDimension() {
+        return embeddingDimension;
+    }
+
+    public void setEmbeddingDimension(Integer embeddingDimension) {
+        this.embeddingDimension = embeddingDimension;
     }
 
     public Boolean getEnabled() {

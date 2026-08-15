@@ -73,3 +73,9 @@ app:
     secret-key: ${MINIO_SECRET_KEY:}
     bucket: companyomnibase
     base-path: kb-qa
+  elasticsearch:
+    chunk-index: kb_chunk_vector
+  embedding:
+    batch-size: 8
+    connect-timeout-ms: 15000
+    read-timeout-ms: 120000

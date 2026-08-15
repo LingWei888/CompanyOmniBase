@@ -10,10 +10,11 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 启动时补偿：把仍处于 PENDING 的文档重新投递到入库队列。
+ * 启动补偿：重新投递 PENDING（全流程）与 WAITING_EMBEDDING（仅向量化）。
  */
 @Component
 public class PendingDocumentRequeueRunner implements ApplicationRunner {
@@ -31,16 +32,18 @@ public class PendingDocumentRequeueRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        List<KbDocument> pending = kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.PENDING);
-        if (pending.isEmpty()) {
+        List<KbDocument> docs = new ArrayList<>();
+        docs.addAll(kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.PENDING));
+        docs.addAll(kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.WAITING_EMBEDDING));
+        if (docs.isEmpty()) {
             return;
         }
-        log.info("Requeue {} PENDING document(s) on startup", pending.size());
-        for (KbDocument document : pending) {
+        log.info("Requeue {} PENDING/WAITING_EMBEDDING document(s) on startup", docs.size());
+        for (KbDocument document : docs) {
             try {
                 documentIngestPublisher.publish(document);
             } catch (Exception ex) {
-                log.error("Failed to requeue PENDING documentId={}: {}", document.getId(), ex.getMessage());
+                log.error("Failed to requeue documentId={}: {}", document.getId(), ex.getMessage());
             }
         }
     }

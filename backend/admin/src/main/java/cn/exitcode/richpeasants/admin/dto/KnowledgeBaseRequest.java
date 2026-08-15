@@ -1,5 +1,7 @@
 package cn.exitcode.richpeasants.admin.dto;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -13,6 +15,16 @@ public class KnowledgeBaseRequest {
     private String description;
 
     private Boolean enabled = true;
+
+    /** 留空/null = 使用系统默认 */
+    @Min(value = 100, message = "切分长度至少 100")
+    @Max(value = 8000, message = "切分长度不能超过 8000")
+    private Integer defaultChunkSize;
+
+    /** 留空/null = 使用系统默认 */
+    @Min(value = 0, message = "重叠长度不能为负")
+    @Max(value = 4000, message = "重叠长度不能超过 4000")
+    private Integer defaultChunkOverlap;
 
     public String getName() {
         return name;
@@ -36,5 +48,21 @@ public class KnowledgeBaseRequest {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Integer getDefaultChunkSize() {
+        return defaultChunkSize;
+    }
+
+    public void setDefaultChunkSize(Integer defaultChunkSize) {
+        this.defaultChunkSize = defaultChunkSize;
+    }
+
+    public Integer getDefaultChunkOverlap() {
+        return defaultChunkOverlap;
+    }
+
+    public void setDefaultChunkOverlap(Integer defaultChunkOverlap) {
+        this.defaultChunkOverlap = defaultChunkOverlap;
     }
 }

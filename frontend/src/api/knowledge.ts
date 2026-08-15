@@ -7,6 +7,8 @@ export interface KnowledgeBase {
   name: string
   description?: string
   enabled: boolean
+  defaultChunkSize?: number | null
+  defaultChunkOverlap?: number | null
   createdAt?: string
   updatedAt?: string
 }
@@ -15,6 +17,8 @@ export interface KnowledgeBasePayload {
   name: string
   description?: string
   enabled?: boolean
+  defaultChunkSize?: number | null
+  defaultChunkOverlap?: number | null
 }
 
 export async function listKnowledgeBases(page = 1, size = 10) {

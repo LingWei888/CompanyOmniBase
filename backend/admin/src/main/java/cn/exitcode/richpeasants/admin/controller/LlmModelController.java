@@ -3,6 +3,7 @@ package cn.exitcode.richpeasants.admin.controller;
 import cn.exitcode.richpeasants.admin.dto.LlmModelRequest;
 import cn.exitcode.richpeasants.admin.service.LlmModelService;
 import cn.exitcode.richpeasants.common.entity.LlmModel;
+import cn.exitcode.richpeasants.common.enums.LlmModelPurpose;
 import cn.exitcode.richpeasants.common.result.ApiResult;
 import cn.exitcode.richpeasants.common.result.PageResult;
 import jakarta.validation.Valid;
@@ -27,9 +28,10 @@ public class LlmModelController {
     }
 
     @GetMapping
-    public ApiResult<PageResult<LlmModel>> page(@RequestParam(defaultValue = "1") int page,
+    public ApiResult<PageResult<LlmModel>> page(@RequestParam(required = false) LlmModelPurpose purpose,
+                                                @RequestParam(defaultValue = "1") int page,
                                                 @RequestParam(defaultValue = "10") int size) {
-        return ApiResult.ok(llmModelService.page(page, size));
+        return ApiResult.ok(llmModelService.page(purpose, page, size));
     }
 
     @GetMapping("/{id}")

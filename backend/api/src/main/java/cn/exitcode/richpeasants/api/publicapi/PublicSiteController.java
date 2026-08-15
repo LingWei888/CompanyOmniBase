@@ -2,6 +2,7 @@ package cn.exitcode.richpeasants.api.publicapi;
 
 import cn.exitcode.richpeasants.common.entity.LlmModel;
 import cn.exitcode.richpeasants.common.entity.SysConfig;
+import cn.exitcode.richpeasants.common.enums.LlmModelPurpose;
 import cn.exitcode.richpeasants.common.repository.LlmModelRepository;
 import cn.exitcode.richpeasants.common.repository.SysConfigRepository;
 import cn.exitcode.richpeasants.common.result.ApiResult;
@@ -42,7 +43,10 @@ public class PublicSiteController {
 
     @GetMapping("/models")
     public ApiResult<List<PublicModelOption>> models() {
-        List<PublicModelOption> list = llmModelRepository.findByEnabledTrueOrderByIdAsc().stream()
+        // 前台聊天只暴露对话模型，不包含 Embedding
+        List<PublicModelOption> list = llmModelRepository
+                .findByPurposeAndEnabledTrueOrderByIdAsc(LlmModelPurpose.CHAT)
+                .stream()
                 .map(this::toOption)
                 .collect(Collectors.toList());
         return ApiResult.ok(list);
