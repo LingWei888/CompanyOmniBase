@@ -7,11 +7,19 @@ export interface StreamMeta {
   kbNames: string[]
   modelId: number
   modelName: string
+  ragEnabled?: boolean
+  agentEnabled?: boolean
+}
+
+export interface StreamToolEvent {
+  name: string
+  message: string
 }
 
 export interface AskStreamHandlers {
   onMeta?: (meta: StreamMeta) => void
   onCitations?: (citations: RagCitation[]) => void
+  onTool?: (tool: StreamToolEvent) => void
   onDelta?: (content: string) => void
   onDone?: (answer: string) => void
   onError?: (message: string) => void
@@ -21,12 +29,18 @@ export interface AskStreamHandlers {
  * 解析 SSE 文本流（支持 event: + data:）。
  */
 export async function askRagStream(payload: RagAskPayload, handlers: AskStreamHandlers) {
+  const userToken = localStorage.getItem('user_access_token')
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+  if (userToken) {
+    headers.Authorization = `Bearer ${userToken}`
+  }
+
   const response = await fetch('/api/public/chat/ask/stream', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
+    headers,
     body: JSON.stringify(payload),
   })
 
@@ -86,6 +100,12 @@ export async function askRagStream(payload: RagAskPayload, handlers: AskStreamHa
       handlers.onMeta?.(data as StreamMeta)
     } else if (eventName === 'citations' && Array.isArray(data)) {
       handlers.onCitations?.(data as RagCitation[])
+    } else if (eventName === 'tool' && data && typeof data === 'object') {
+      const raw = data as { name?: string; message?: string }
+      handlers.onTool?.({
+        name: String(raw.name || ''),
+        message: String(raw.message || '正在调用工具…'),
+      })
     } else if (eventName === 'delta') {
       let content: string | undefined
       if (typeof data === 'string') {

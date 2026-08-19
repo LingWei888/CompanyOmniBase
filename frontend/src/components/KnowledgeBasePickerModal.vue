@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PublicKnowledgeBaseOption } from '@/api/publicSite'
 
 const props = defineProps<{
@@ -14,6 +14,10 @@ const emit = defineEmits<{
 }>()
 
 const draft = ref<number[]>([])
+
+const allSelected = computed(() => {
+  return props.options.length > 0 && props.options.every((item) => draft.value.includes(item.id))
+})
 
 watch(
   () => props.open,
@@ -35,12 +39,12 @@ function toggle(id: number) {
   }
 }
 
-function selectAll() {
-  draft.value = props.options.map((item) => item.id)
-}
-
-function clearAll() {
-  draft.value = []
+function toggleAll() {
+  if (allSelected.value) {
+    draft.value = []
+  } else {
+    draft.value = props.options.map((item) => item.id)
+  }
 }
 
 function confirm() {
@@ -59,11 +63,11 @@ function confirm() {
           <button type="button" class="x" aria-label="关闭" @click="emit('close')">×</button>
         </header>
 
-        <p class="hint">可多选；默认全选。全不选表示关闭知识库检索（纯对话）。</p>
-
-        <div class="actions">
-          <button type="button" class="link" @click="selectAll">全选</button>
-          <button type="button" class="link" @click="clearAll">全不选</button>
+        <div v-if="options.length" class="select-all">
+          <label class="row master">
+            <input type="checkbox" :checked="allSelected" @change="toggleAll" />
+            <span class="name">全选</span>
+          </label>
         </div>
 
         <div v-if="!options.length" class="empty">暂无可用知识库</div>
@@ -138,27 +142,9 @@ function confirm() {
   color: #666;
 }
 
-.hint {
-  margin: 0;
-  padding: 0 18px 8px;
-  font-size: 13px;
-  color: #777;
-}
-
-.actions {
-  display: flex;
-  gap: 12px;
-  padding: 0 18px 10px;
-}
-
-.link {
-  border: 0;
-  background: transparent;
-  color: #1a5fb4;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  padding: 0;
+.select-all {
+  padding: 0 10px 4px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .empty {
@@ -187,6 +173,11 @@ function confirm() {
   cursor: pointer;
 }
 
+.row.master {
+  grid-template-rows: auto;
+  align-items: center;
+}
+
 .row:hover {
   background: #f6f6f6;
 }
@@ -194,6 +185,11 @@ function confirm() {
 .row input {
   grid-row: 1 / span 2;
   margin-top: 3px;
+}
+
+.row.master input {
+  grid-row: 1;
+  margin-top: 0;
 }
 
 .name {

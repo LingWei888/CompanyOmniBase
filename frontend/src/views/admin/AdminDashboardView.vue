@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { fetchDashboardOverview } from '@/api/adminAuth'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 const loading = ref(true)
-const overview = ref<Record<string, string> | null>(null)
+const overview = ref<Record<string, unknown> | null>(null)
 
 onMounted(async () => {
   try {
@@ -35,10 +36,31 @@ onMounted(async () => {
         <strong>{{ overview?.status }}</strong>
       </div>
       <div class="item">
+        <span>等待向量化</span>
+        <strong>{{ overview?.waitingEmbeddingCount ?? 0 }}</strong>
+      </div>
+      <div class="item">
+        <span>向量化中</span>
+        <strong>{{ overview?.embeddingCount ?? 0 }}</strong>
+      </div>
+      <div class="item">
+        <span>READY</span>
+        <strong>{{ overview?.readyCount ?? 0 }}</strong>
+      </div>
+      <div class="item">
+        <span>FAILED</span>
+        <strong>{{ overview?.failedCount ?? 0 }}</strong>
+      </div>
+      <div class="item">
         <span>服务器时间</span>
         <strong>{{ overview?.serverTime }}</strong>
       </div>
     </div>
+    <p v-if="overview" class="hint">
+      切分完成后文档会进入「等待向量化」；请到
+      <RouterLink to="/admin/ingest-ops">入库运维</RouterLink>
+      手动触发 Embedding。
+    </p>
   </div>
 </template>
 
@@ -87,6 +109,16 @@ h2 {
 
 .item strong {
   word-break: break-word;
+}
+
+.hint {
+  margin: 16px 0 0;
+  color: #525252;
+  font-size: 14px;
+}
+
+.hint a {
+  color: #2563eb;
 }
 
 @media (max-width: 640px) {

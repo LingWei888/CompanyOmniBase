@@ -55,7 +55,7 @@ public class MinioStorageService {
         String original = file.getOriginalFilename() == null ? "asset" : file.getOriginalFilename();
         String ext = extension(original);
         if (!IMAGE_EXT.contains(ext)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "Logo 仅支持 png/jpg/jpeg/gif/webp/svg");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "图片仅支持 png/jpg/jpeg/gif/webp/svg");
         }
         String safeName = sanitizeFilename(original);
         String objectKey = String.format("%s/%s/%s_%s",

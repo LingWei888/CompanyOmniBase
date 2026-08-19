@@ -65,7 +65,7 @@ public class DocumentIngestService {
     }
 
     /**
-     * 解析 → 切分 → Embedding → ES → READY。
+     * 解析 → 切分 → WAITING_EMBEDDING（Embedding 由后台手动触发）。
      * 若已是 WAITING_EMBEDDING，则只跑向量化。
      */
     public void handleIngestMessage(DocumentIngestMessage message) {
@@ -113,10 +113,8 @@ public class DocumentIngestService {
             List<String> pieces = textChunker.chunk(text, chunkSize, overlap);
             saveChunksAndWaitingEmbedding(documentId, document.getKbId(), pieces);
 
-            log.info("Document parse+chunk done. documentId={}, chars={}, chunks={}",
+            log.info("Document parse+chunk done, waiting manual embedding. documentId={}, chars={}, chunks={}",
                     documentId, text.length(), pieces.size());
-
-            runEmbedding(documentId);
         } catch (Exception ex) {
             log.error("Document ingest failed: documentId={}", documentId, ex);
             markFailed(documentId, ex.getMessage());

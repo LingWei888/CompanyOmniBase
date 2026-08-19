@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -57,6 +59,15 @@ public class UserAuthController {
             return ApiResult.fail(ResultCode.UNAUTHORIZED);
         }
         return ApiResult.ok(userAuthService.updateProfile(loginUser, request));
+    }
+
+    @PostMapping("/avatar")
+    public ApiResult<UserAuthResponse.UserInfo> uploadAvatar(@AuthenticationPrincipal LoginUser loginUser,
+                                                             @RequestParam("file") MultipartFile file) {
+        if (loginUser == null) {
+            return ApiResult.fail(ResultCode.UNAUTHORIZED);
+        }
+        return ApiResult.ok(userAuthService.uploadAvatar(loginUser, file));
     }
 
     @PutMapping("/password")

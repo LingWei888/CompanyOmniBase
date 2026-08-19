@@ -1,5 +1,6 @@
 package cn.exitcode.richpeasants.rag.service;
 
+import cn.exitcode.richpeasants.common.entity.ChatSession;
 import cn.exitcode.richpeasants.common.entity.KbDocument;
 import cn.exitcode.richpeasants.common.entity.KnowledgeBase;
 import cn.exitcode.richpeasants.common.entity.LlmModel;
@@ -9,8 +10,10 @@ import cn.exitcode.richpeasants.common.repository.KbDocumentRepository;
 import cn.exitcode.richpeasants.common.repository.KnowledgeBaseRepository;
 import cn.exitcode.richpeasants.common.repository.LlmModelRepository;
 import cn.exitcode.richpeasants.common.result.ResultCode;
+import cn.exitcode.richpeasants.common.security.LoginUser;
 import cn.exitcode.richpeasants.ingest.embedding.EmbeddingClient;
 import cn.exitcode.richpeasants.ingest.es.ChunkVectorStore;
+import cn.exitcode.richpeasants.rag.agent.AgentOrchestrator;
 import cn.exitcode.richpeasants.rag.config.RagAppProperties;
 import cn.exitcode.richpeasants.rag.dto.RagAskRequest;
 import cn.exitcode.richpeasants.rag.dto.RagAskResponse;
@@ -46,19 +49,16 @@ public class RagAskService {
             输出代码时必须使用标准 Markdown 围栏：``` 单独成行，语言标记与代码之间换行，代码块结束后再用 ``` 单独成行关闭；不要把标题和 ``` 粘在同一行。
             """;
 
-    private static final String CHAT_ONLY_SYSTEM_PROMPT = """
-            你是智能助手。请用简洁中文直接回答用户问题。
-            输出代码时必须使用标准 Markdown 围栏：``` 单独成行，语言标记与代码之间换行，代码块结束后再用 ``` 单独成行关闭；不要把标题和 ``` 粘在同一行。
-            """;
-
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final LlmModelRepository llmModelRepository;
     private final KbDocumentRepository kbDocumentRepository;
     private final EmbeddingClient embeddingClient;
     private final ChunkVectorStore chunkVectorStore;
     private final ChatCompletionsClient chatCompletionsClient;
+    private final AgentOrchestrator agentOrchestrator;
     private final RagAppProperties ragAppProperties;
     private final ObjectMapper objectMapper;
+    private final ChatSessionService chatSessionService;
 
     public RagAskService(KnowledgeBaseRepository knowledgeBaseRepository,
                          LlmModelRepository llmModelRepository,
@@ -66,23 +66,30 @@ public class RagAskService {
                          EmbeddingClient embeddingClient,
                          ChunkVectorStore chunkVectorStore,
                          ChatCompletionsClient chatCompletionsClient,
+                         AgentOrchestrator agentOrchestrator,
                          RagAppProperties ragAppProperties,
-                         ObjectMapper objectMapper) {
+                         ObjectMapper objectMapper,
+                         ChatSessionService chatSessionService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.llmModelRepository = llmModelRepository;
         this.kbDocumentRepository = kbDocumentRepository;
         this.embeddingClient = embeddingClient;
         this.chunkVectorStore = chunkVectorStore;
         this.chatCompletionsClient = chatCompletionsClient;
+        this.agentOrchestrator = agentOrchestrator;
         this.ragAppProperties = ragAppProperties;
         this.objectMapper = objectMapper;
+        this.chatSessionService = chatSessionService;
     }
 
-    public RagAskResponse ask(RagAskRequest request) {
-        PreparedAsk prepared = prepare(request);
+    public RagAskResponse ask(RagAskRequest request, LoginUser loginUser) {
+        PreparedAsk prepared = prepare(request, loginUser);
+        persistUserMessage(prepared);
         if (prepared.ragEnabled() && prepared.hits().isEmpty()) {
+            String empty = "未在所选知识库中检索到相关内容。请确认文档已入库完成（状态为 READY），且使用了当前启用的 Embedding 模型。";
+            persistAssistantMessage(prepared, empty, List.of());
             return new RagAskResponse(
-                    "未在所选知识库中检索到相关内容。请确认文档已入库完成（状态为 READY），且使用了当前启用的 Embedding 模型。",
+                    empty,
                     prepared.kbIds(),
                     prepared.kbNames(),
                     prepared.chatModel().getId(),
@@ -90,8 +97,19 @@ public class RagAskService {
                     List.of()
             );
         }
-        String answer = chatCompletionsClient.complete(
-                prepared.chatModel(), prepared.systemPrompt(), prepared.userPrompt());
+        String answer;
+        if (!prepared.ragEnabled()) {
+            answer = agentOrchestrator.run(
+                    prepared.chatModel(),
+                    prepared.userQuestion(),
+                    (name, display) -> { },
+                    delta -> { }
+            );
+        } else {
+            answer = chatCompletionsClient.complete(
+                    prepared.chatModel(), prepared.systemPrompt(), prepared.userPrompt());
+        }
+        persistAssistantMessage(prepared, answer, prepared.citations());
         return new RagAskResponse(
                 answer,
                 prepared.kbIds(),
@@ -102,15 +120,17 @@ public class RagAskService {
         );
     }
 
-    public void askStream(RagAskRequest request, SseEmitter emitter) {
+    public void askStream(RagAskRequest request, LoginUser loginUser, SseEmitter emitter) {
         try {
-            PreparedAsk prepared = prepare(request);
+            PreparedAsk prepared = prepare(request, loginUser);
+            persistUserMessage(prepared);
             sendEvent(emitter, "meta", Map.of(
                     "kbIds", prepared.kbIds(),
                     "kbNames", prepared.kbNames(),
                     "modelId", prepared.chatModel().getId(),
                     "modelName", prepared.chatModel().getName(),
-                    "ragEnabled", prepared.ragEnabled()
+                    "ragEnabled", prepared.ragEnabled(),
+                    "agentEnabled", !prepared.ragEnabled()
             ));
 
             if (prepared.ragEnabled() && prepared.hits().isEmpty()) {
@@ -118,6 +138,7 @@ public class RagAskService {
                 sendEvent(emitter, "citations", List.of());
                 sendEvent(emitter, "delta", Map.of("content", empty));
                 sendEvent(emitter, "done", Map.of("answer", empty));
+                persistAssistantMessage(prepared, empty, List.of());
                 emitter.complete();
                 return;
             }
@@ -125,20 +146,47 @@ public class RagAskService {
             sendEvent(emitter, "citations", prepared.citations());
 
             StringBuilder full = new StringBuilder();
-            chatCompletionsClient.stream(
-                    prepared.chatModel(),
-                    prepared.systemPrompt(),
-                    prepared.userPrompt(),
-                    delta -> {
-                        full.append(delta);
-                        try {
-                            sendEvent(emitter, "delta", Map.of("content", delta));
-                        } catch (IOException ex) {
-                            throw new BusinessException(ResultCode.INTERNAL_ERROR, "SSE 推送失败: " + ex.getMessage());
-                        }
-                    });
+            if (!prepared.ragEnabled()) {
+                agentOrchestrator.run(
+                        prepared.chatModel(),
+                        prepared.userQuestion(),
+                        (toolName, display) -> {
+                            try {
+                                sendEvent(emitter, "tool", Map.of(
+                                        "name", toolName,
+                                        "message", display
+                                ));
+                            } catch (IOException ex) {
+                                throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                                        "SSE 推送失败: " + ex.getMessage());
+                            }
+                        },
+                        delta -> {
+                            full.append(delta);
+                            try {
+                                sendEvent(emitter, "delta", Map.of("content", delta));
+                            } catch (IOException ex) {
+                                throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                                        "SSE 推送失败: " + ex.getMessage());
+                            }
+                        });
+            } else {
+                chatCompletionsClient.stream(
+                        prepared.chatModel(),
+                        prepared.systemPrompt(),
+                        prepared.userPrompt(),
+                        delta -> {
+                            full.append(delta);
+                            try {
+                                sendEvent(emitter, "delta", Map.of("content", delta));
+                            } catch (IOException ex) {
+                                throw new BusinessException(ResultCode.INTERNAL_ERROR, "SSE 推送失败: " + ex.getMessage());
+                            }
+                        });
+            }
 
             sendEvent(emitter, "done", Map.of("answer", full.toString()));
+            persistAssistantMessage(prepared, full.toString(), prepared.citations());
             emitter.complete();
         } catch (BusinessException ex) {
             try {
@@ -158,18 +206,19 @@ public class RagAskService {
         }
     }
 
-    private PreparedAsk prepare(RagAskRequest request) {
+    private PreparedAsk prepare(RagAskRequest request, LoginUser loginUser) {
         String question = request.getQuestion() == null ? "" : request.getQuestion().trim();
         if (!StringUtils.hasText(question)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "问题不能为空");
         }
 
+        ChatSession session = resolveSession(request, loginUser);
         ResolvedKbs resolved = resolveKnowledgeBases(request);
         LlmModel chatModel = requireChatModel(request.getModelId());
 
-        // 未选知识库：关闭 RAG，直接对话
+        // 未选知识库：走 Agent（工具：时间 / 天气 / Tavily 搜索）
         if (!resolved.ragEnabled()) {
-            log.debug("RAG disabled: no knowledge base selected");
+            log.debug("Agent mode: no knowledge base selected");
             return new PreparedAsk(
                     List.of(),
                     List.of(),
@@ -177,8 +226,10 @@ public class RagAskService {
                     List.of(),
                     List.of(),
                     question,
-                    CHAT_ONLY_SYSTEM_PROMPT,
-                    false
+                    AgentOrchestrator.AGENT_SYSTEM_PROMPT,
+                    false,
+                    session,
+                    question
             );
         }
 
@@ -210,8 +261,33 @@ public class RagAskService {
                 citations,
                 userPrompt,
                 RAG_SYSTEM_PROMPT,
-                true
+                true,
+                session,
+                question
         );
+    }
+
+    private ChatSession resolveSession(RagAskRequest request, LoginUser loginUser) {
+        if (request.getSessionId() == null || loginUser == null) {
+            return null;
+        }
+        ChatSession session = chatSessionService.requireOwnedSession(loginUser, request.getSessionId());
+        chatSessionService.touchPreferences(session, request.getModelId(), request.getKbIds());
+        return session;
+    }
+
+    private void persistUserMessage(PreparedAsk prepared) {
+        if (prepared.session() == null) {
+            return;
+        }
+        chatSessionService.appendUserMessage(prepared.session(), prepared.userQuestion());
+    }
+
+    private void persistAssistantMessage(PreparedAsk prepared, String answer, List<RagCitation> citations) {
+        if (prepared.session() == null) {
+            return;
+        }
+        chatSessionService.appendAssistantMessage(prepared.session(), answer, citations);
     }
 
     private LlmModel requireChatModel(Long modelId) {
@@ -365,6 +441,8 @@ public class RagAskService {
                                List<RagCitation> citations,
                                String userPrompt,
                                String systemPrompt,
-                               boolean ragEnabled) {
+                               boolean ragEnabled,
+                               ChatSession session,
+                               String userQuestion) {
     }
 }

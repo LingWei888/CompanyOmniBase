@@ -68,6 +68,7 @@ onUnmounted(() => {
         <RouterLink to="/admin/users" @click="closeMenu">用户</RouterLink>
         <RouterLink to="/admin/knowledge" @click="closeMenu">知识库</RouterLink>
         <RouterLink to="/admin/documents" @click="closeMenu">文档</RouterLink>
+        <RouterLink to="/admin/ingest-ops" @click="closeMenu">入库运维</RouterLink>
         <RouterLink to="/admin/models" @click="closeMenu">模型</RouterLink>
         <RouterLink to="/admin/settings" @click="closeMenu">系统设置</RouterLink>
       </nav>

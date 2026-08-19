@@ -45,6 +45,11 @@ const router = createRouter({
           component: () => import('@/views/admin/DocumentsView.vue'),
         },
         {
+          path: 'ingest-ops',
+          name: 'admin-ingest-ops',
+          component: () => import('@/views/admin/IngestOpsView.vue'),
+        },
+        {
           path: 'models',
           name: 'admin-models',
           component: () => import('@/views/admin/ModelsView.vue'),

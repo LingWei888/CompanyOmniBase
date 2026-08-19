@@ -204,12 +204,40 @@ public class DocumentAdminService {
     }
 
     /**
-     * 重新投递入库队列（含 WAITING_EMBEDDING / READY：可重跑解析切分）。
+     * 重新投递入库队列（全流程：解析 + 切分）。
      */
     @Transactional
     public KbDocument requeue(Long id) {
         KbDocument document = get(id);
         document.setStatus(DocumentStatus.PENDING);
+        document.setErrorMessage(null);
+        KbDocument saved = kbDocumentRepository.save(document);
+        documentIngestPublisher.publishAfterCommit(saved);
+        return saved;
+    }
+
+    /**
+     * 手动触发 Embedding：文档须已切分完成（WAITING_EMBEDDING），或 FAILED 且已有片段。
+     */
+    @Transactional
+    public KbDocument startEmbedding(Long id) {
+        KbDocument document = get(id);
+        if (document.getStatus() == DocumentStatus.EMBEDDING) {
+            throw new BusinessException(ResultCode.CONFLICT, "文档正在向量化中");
+        }
+        if (document.getStatus() == DocumentStatus.READY) {
+            throw new BusinessException(ResultCode.CONFLICT, "文档已完成向量化");
+        }
+        if (document.getStatus() == DocumentStatus.PENDING
+                || document.getStatus() == DocumentStatus.PARSING
+                || document.getStatus() == DocumentStatus.CHUNKING) {
+            throw new BusinessException(ResultCode.CONFLICT, "文档尚未完成切分，请等待解析切分完成");
+        }
+        int chunks = document.getChunkCount() == null ? 0 : document.getChunkCount();
+        if (chunks <= 0 && document.getStatus() != DocumentStatus.WAITING_EMBEDDING) {
+            throw new BusinessException(ResultCode.CONFLICT, "文档没有可向量化的片段，请重新入库");
+        }
+        document.setStatus(DocumentStatus.WAITING_EMBEDDING);
         document.setErrorMessage(null);
         KbDocument saved = kbDocumentRepository.save(document);
         documentIngestPublisher.publishAfterCommit(saved);

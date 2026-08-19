@@ -14,6 +14,7 @@ public class RagAppProperties {
     private int connectTimeoutMs = 15000;
     private int readTimeoutMs = 120000;
     private double temperature = 0.2;
+    private final Agent agent = new Agent();
 
     public int getTopK() {
         return topK;
@@ -61,5 +62,83 @@ public class RagAppProperties {
 
     public void setTemperature(double temperature) {
         this.temperature = temperature;
+    }
+
+    public Agent getAgent() {
+        return agent;
+    }
+
+    public static class Agent {
+        /** 工具调用最大轮数 */
+        private int maxToolRounds = 5;
+        private final Tavily tavily = new Tavily();
+        private final Weather weather = new Weather();
+
+        public int getMaxToolRounds() {
+            return maxToolRounds;
+        }
+
+        public void setMaxToolRounds(int maxToolRounds) {
+            this.maxToolRounds = maxToolRounds;
+        }
+
+        public Tavily getTavily() {
+            return tavily;
+        }
+
+        public Weather getWeather() {
+            return weather;
+        }
+    }
+
+    public static class Tavily {
+        private String apiKey = "";
+        private String baseUrl = "https://api.tavily.com";
+        private int maxResults = 5;
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public int getMaxResults() {
+            return maxResults;
+        }
+
+        public void setMaxResults(int maxResults) {
+            this.maxResults = maxResults;
+        }
+    }
+
+    public static class Weather {
+        private String geocodeUrl = "https://geocoding-api.open-meteo.com/v1/search";
+        private String forecastUrl = "https://api.open-meteo.com/v1/forecast";
+
+        public String getGeocodeUrl() {
+            return geocodeUrl;
+        }
+
+        public void setGeocodeUrl(String geocodeUrl) {
+            this.geocodeUrl = geocodeUrl;
+        }
+
+        public String getForecastUrl() {
+            return forecastUrl;
+        }
+
+        public void setForecastUrl(String forecastUrl) {
+            this.forecastUrl = forecastUrl;
+        }
     }
 }

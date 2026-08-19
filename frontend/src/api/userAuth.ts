@@ -46,6 +46,16 @@ export async function updateUserProfile(payload: { nickname?: string; avatarUrl?
   return unwrap(data)
 }
 
+export async function uploadUserAvatar(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<ApiResult<AppUser>>('/api/auth/avatar', form, {
+    timeout: 60000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return unwrap(data)
+}
+
 export async function changeUserPassword(payload: { oldPassword: string; newPassword: string }) {
   const { data } = await http.put<ApiResult<null>>('/api/auth/password', payload)
   unwrap(data)

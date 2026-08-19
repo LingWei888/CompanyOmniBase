@@ -29,4 +29,24 @@ public class RagClientConfig {
                 .requestFactory(requestFactory)
                 .build();
     }
+
+    /**
+     * Agent 外部工具（Tavily / Open-Meteo）专用 HTTP 客户端。
+     */
+    @Bean
+    public RestClient agentRestClient(RagAppProperties properties) {
+        int connectMs = Math.max(1000, properties.getConnectTimeoutMs());
+        int readMs = Math.max(5000, Math.min(60_000, properties.getReadTimeoutMs()));
+
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(connectMs))
+                .build();
+
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(Duration.ofMillis(readMs));
+
+        return RestClient.builder()
+                .requestFactory(requestFactory)
+                .build();
+    }
 }

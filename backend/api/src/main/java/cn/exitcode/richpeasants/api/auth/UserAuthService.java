@@ -9,12 +9,14 @@ import cn.exitcode.richpeasants.common.result.ResultCode;
 import cn.exitcode.richpeasants.common.security.JwtProperties;
 import cn.exitcode.richpeasants.common.security.JwtTokenProvider;
 import cn.exitcode.richpeasants.common.security.LoginUser;
+import cn.exitcode.richpeasants.common.storage.MinioStorageService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class UserAuthService {
@@ -23,15 +25,18 @@ public class UserAuthService {
     private final JwtProperties jwtProperties;
     private final SysUserRepository sysUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final MinioStorageService minioStorageService;
 
     public UserAuthService(JwtTokenProvider jwtTokenProvider,
                            JwtProperties jwtProperties,
                            SysUserRepository sysUserRepository,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder,
+                           MinioStorageService minioStorageService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.jwtProperties = jwtProperties;
         this.sysUserRepository = sysUserRepository;
         this.passwordEncoder = passwordEncoder;
+        this.minioStorageService = minioStorageService;
     }
 
     @Transactional
@@ -111,6 +116,25 @@ public class UserAuthService {
             user.setAvatarUrl(StringUtils.hasText(request.getAvatarUrl()) ? request.getAvatarUrl().trim() : null);
         }
         sysUserRepository.save(user);
+        return toUserInfo(user);
+    }
+
+    @Transactional
+    public UserAuthResponse.UserInfo uploadAvatar(LoginUser loginUser, MultipartFile file) {
+        requireAppUser(loginUser);
+        SysUser user = sysUserRepository.findById(loginUser.getUserId())
+                .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在"));
+        String url = minioStorageService.uploadSiteAsset(file, "avatars");
+        String oldAvatar = user.getAvatarUrl();
+        user.setAvatarUrl(url);
+        sysUserRepository.save(user);
+        if (StringUtils.hasText(oldAvatar) && !oldAvatar.equals(url)) {
+            try {
+                minioStorageService.delete(oldAvatar);
+            } catch (Exception ignored) {
+                // 旧头像清理失败不阻断更新
+            }
+        }
         return toUserInfo(user);
     }
 

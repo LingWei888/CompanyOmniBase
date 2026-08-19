@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 启动补偿：重新投递 PENDING（全流程）与 WAITING_EMBEDDING（仅向量化）。
+ * 启动补偿：仅重新投递 PENDING（解析切分）；WAITING_EMBEDDING 需后台手动触发。
  */
 @Component
 public class PendingDocumentRequeueRunner implements ApplicationRunner {
@@ -32,13 +32,11 @@ public class PendingDocumentRequeueRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        List<KbDocument> docs = new ArrayList<>();
-        docs.addAll(kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.PENDING));
-        docs.addAll(kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.WAITING_EMBEDDING));
+        List<KbDocument> docs = kbDocumentRepository.findByStatusOrderByIdAsc(DocumentStatus.PENDING);
         if (docs.isEmpty()) {
             return;
         }
-        log.info("Requeue {} PENDING/WAITING_EMBEDDING document(s) on startup", docs.size());
+        log.info("Requeue {} PENDING document(s) on startup", docs.size());
         for (KbDocument document : docs) {
             try {
                 documentIngestPublisher.publish(document);

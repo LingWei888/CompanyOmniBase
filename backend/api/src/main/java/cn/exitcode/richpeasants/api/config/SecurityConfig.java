@@ -50,7 +50,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/auth/profile", "/api/auth/password").hasRole("USER")
+                        .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/auth/profile", "/api/auth/password", "/api/auth/avatar").hasRole("USER")
+                        .requestMatchers("/api/auth/chat/**").hasRole("USER")
                         .requestMatchers("/api/**").permitAll()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

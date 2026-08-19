@@ -2,7 +2,7 @@
 
 技术架构：Spring Boot 3 + Elasticsearch + RabbitMQ + MySQL + MinIO + Vue3（自研 RAG，无 LangChain4j）
 
-## 当前进度（Day1 ~ Day8）
+## 当前进度（Day1 ~ Day11）
 
 ### Day1 工程骨架与基础设施
 - 后端多模块：`common` / `admin` / `rag` / `ingest` / `api`
@@ -42,7 +42,19 @@
 - ES kNN 按 `kbId`（+ Embedding `modelId`）检索 Top-K 片段
 - 组装带编号的参考资料 Prompt，调用 OpenAI 兼容 `/chat/completions`
 - `POST /api/public/chat/ask` 返回答案 + citations；`GET /api/public/knowledge-bases` 供前台选择知识库
-- 前台聊天页接入真实问答（会话历史仍为本地占位，SSE 留到后续）
+- 前台聊天页接入真实问答 + **SSE 流式输出**（`/api/public/chat/ask/stream`）
+
+### Day9 ~ Day11 会话持久化 + 手动 Embedding 运维
+- 聊天会话/消息落库（`chat_session` / `chat_message`），登录用户 `GET/POST /api/auth/chat/sessions/**`
+- 问答时可传 `sessionId`，服务端自动保存用户问题与助手回答（含 citations）
+- **切分完成后停在 `WAITING_EMBEDDING`，不再自动 Embedding**（节省算力）
+- 后台「入库运维」双队列：等待向量化 / 向量化中；支持单个或批量「开始向量化」
+- 概览页展示各状态文档数量
+
+### Agent（未选知识库时）
+- 同一入口：选了知识库 → RAG；未选 → Agent（OpenAI `tool_calls`）
+- 内置工具：`get_current_time`、`get_weather`（Open-Meteo）、`web_search`（Tavily）
+- SSE 额外事件 `tool`（前端展示「正在搜索网页…」等）；配置 `app.rag.agent.tavily.api-key` 或环境变量 `TAVILY_API_KEY`
 
 ---
 

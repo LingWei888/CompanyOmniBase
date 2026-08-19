@@ -19,6 +19,8 @@ export interface RagAskPayload {
   modelId: number
   question: string
   topK?: number
+  /** 登录用户可选：持久化到该会话 */
+  sessionId?: number
 }
 
 export interface RagAskResult {

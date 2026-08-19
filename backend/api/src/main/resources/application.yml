@@ -86,3 +86,12 @@ app:
     connect-timeout-ms: 15000
     read-timeout-ms: 120000
     temperature: 0.2
+    agent:
+      max-tool-rounds: 3
+      tavily:
+        api-key: ${TAVILY_API_KEY:}
+        base-url: https://api.tavily.com
+        max-results: 5
+      weather:
+        geocode-url: https://geocoding-api.open-meteo.com/v1/search
+        forecast-url: https://api.open-meteo.com/v1/forecast

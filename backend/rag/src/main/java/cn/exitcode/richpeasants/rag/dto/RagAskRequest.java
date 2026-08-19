@@ -31,6 +31,9 @@ public class RagAskRequest {
     @Max(value = 20, message = "topK 不能超过 20")
     private Integer topK;
 
+    /** 登录用户可选：持久化到该会话 */
+    private Long sessionId;
+
     public List<Long> getKbIds() {
         return kbIds;
     }
@@ -69,5 +72,13 @@ public class RagAskRequest {
 
     public void setTopK(Integer topK) {
         this.topK = topK;
+    }
+
+    public Long getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(Long sessionId) {
+        this.sessionId = sessionId;
     }
 }

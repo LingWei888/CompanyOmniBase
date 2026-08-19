@@ -4,6 +4,7 @@ import {
   changeUserPassword,
   fetchUserMe,
   updateUserProfile,
+  uploadUserAvatar,
   userLogin,
   userLogout,
   userRegister,
@@ -76,6 +77,12 @@ export const useUserAuthStore = defineStore('userAuth', () => {
     setUser(profile)
   }
 
+  async function uploadAvatar(file: File) {
+    const profile = await uploadUserAvatar(file)
+    setUser(profile)
+    return profile
+  }
+
   async function changePassword(oldPassword: string, newPassword: string) {
     await changeUserPassword({ oldPassword, newPassword })
   }
@@ -109,6 +116,7 @@ export const useUserAuthStore = defineStore('userAuth', () => {
     logout,
     refreshProfile,
     updateProfile,
+    uploadAvatar,
     changePassword,
     clearLocal,
   }

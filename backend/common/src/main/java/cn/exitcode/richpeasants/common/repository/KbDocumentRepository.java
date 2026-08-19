@@ -21,4 +21,6 @@ public interface KbDocumentRepository extends JpaRepository<KbDocument, Long> {
     long countByKbId(Long kbId);
 
     List<KbDocument> findByStatusOrderByIdAsc(DocumentStatus status);
+
+    long countByStatus(DocumentStatus status);
 }

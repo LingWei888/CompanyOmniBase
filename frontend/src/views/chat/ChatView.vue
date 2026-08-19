@@ -5,6 +5,13 @@ import ProfileModal from '@/components/ProfileModal.vue'
 import PasswordModal from '@/components/PasswordModal.vue'
 import { askRagStream } from '@/api/chatStream'
 import type { RagCitation } from '@/api/chat'
+import {
+  createChatSession,
+  getChatSession,
+  listChatSessions,
+  updateChatSession,
+  type ChatSessionItem,
+} from '@/api/chatSession'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import KnowledgeBasePickerModal from '@/components/KnowledgeBasePickerModal.vue'
 import { useUserAuthStore } from '@/stores/userAuth'
@@ -13,8 +20,10 @@ import { useToast } from '@/composables/useToast'
 
 interface ChatSession {
   id: string
+  serverId?: number
   title: string
   updatedAt: string
+  kbIds: number[]
 }
 
 interface ChatMessage {
@@ -30,13 +39,8 @@ const auth = useUserAuthStore()
 const site = useSiteStore()
 const toast = useToast()
 
-const sessions = ref<ChatSession[]>([
-  { id: '1', title: '公司制度问答示例', updatedAt: '今天' },
-  { id: '2', title: '产品手册检索示例', updatedAt: '昨天' },
-  { id: '3', title: '新会话（占位）', updatedAt: '更早' },
-])
-
-const activeSessionId = ref('1')
+const sessions = ref<ChatSession[]>([])
+const activeSessionId = ref('')
 const draft = ref('')
 const selectedModelId = ref('')
 /** 空数组 = 关闭 RAG；默认加载后全选 */
@@ -54,11 +58,13 @@ const profileOpen = ref(false)
 const passwordOpen = ref(false)
 const logoutConfirmOpen = ref(false)
 const attachInput = ref<HTMLInputElement | null>(null)
+const userPanelRef = ref<HTMLElement | null>(null)
 const pendingFileName = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const isMobile = ref(false)
 const stickToBottom = ref(true)
 const SCROLL_BOTTOM_GAP = 80
+const userMenuStyle = ref<Record<string, string>>({})
 
 const messages = ref<ChatMessage[]>([])
 
@@ -137,11 +143,11 @@ watch(
 watch(
   () => [site.knowledgeBases, site.loaded] as const,
   ([list, loaded]) => {
-    // 等站点配置拉取完成后再决定默认全选，避免空列表把「全不选」误当成用户选择
+    // 等站点配置拉取完成后再定稿；默认全不选（关闭 RAG）
     if (!loaded) return
     const valid = new Set(list.map((item) => item.id))
     if (!kbSelectionReady.value) {
-      selectedKbIds.value = list.map((item) => item.id)
+      selectedKbIds.value = []
       kbSelectionReady.value = true
       return
     }
@@ -175,39 +181,191 @@ function onAssistantRendered() {
   scrollToBottomIfNeeded()
 }
 
-function selectSession(id: string) {
+function formatSessionTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const now = new Date()
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  if (sameDay) return '今天'
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate()
+  if (isYesterday) return '昨天'
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+function toLocalSession(item: ChatSessionItem): ChatSession {
+  return {
+    id: String(item.id),
+    serverId: item.id,
+    title: item.title,
+    updatedAt: formatSessionTime(item.updatedAt),
+    kbIds: Array.isArray(item.kbIds) ? [...item.kbIds] : [],
+  }
+}
+
+function applyKbIds(ids: number[] | undefined | null) {
+  const valid = new Set(site.knowledgeBases.map((item) => item.id))
+  selectedKbIds.value = (ids ?? []).filter((id) => valid.has(id) || site.knowledgeBases.length === 0)
+  kbSelectionReady.value = true
+}
+
+async function persistKbSelection() {
+  const session = sessions.value.find((item) => item.id === activeSessionId.value)
+  if (!session?.serverId || !auth.isLoggedIn) return
+  const kbIds = [...selectedKbIds.value]
+  session.kbIds = kbIds
+  try {
+    await updateChatSession(session.serverId, { kbIds })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '保存知识库选择失败'
+    toast.error(message)
+  }
+}
+
+async function onKbPickerClose() {
+  kbPickerOpen.value = false
+  await nextTick()
+  await persistKbSelection()
+}
+
+async function refreshSessionList() {
+  if (!auth.isLoggedIn) return
+  try {
+    const list = await listChatSessions()
+    sessions.value = list.map(toLocalSession)
+  } catch {
+    // 刷新侧栏失败不打断当前对话
+  }
+}
+
+async function loadSessions() {
+  if (!auth.isLoggedIn) {
+    sessions.value = []
+    activeSessionId.value = ''
+    messages.value = []
+    selectedKbIds.value = []
+    return
+  }
+  try {
+    const list = await listChatSessions()
+    sessions.value = list.map(toLocalSession)
+    if (!sessions.value.length) {
+      await createSession()
+      return
+    }
+    if (!activeSessionId.value || !sessions.value.some((s) => s.id === activeSessionId.value)) {
+      const first = sessions.value[0]
+      if (first) await selectSession(first.id)
+    } else {
+      const current = sessions.value.find((s) => s.id === activeSessionId.value)
+      if (current) applyKbIds(current.kbIds)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载会话失败'
+    toast.error(message)
+  }
+}
+
+async function selectSession(id: string) {
   activeSessionId.value = id
-  messages.value = []
   pendingFileName.value = ''
   stickToBottom.value = true
+  const session = sessions.value.find((item) => item.id === id)
+  applyKbIds(session?.kbIds)
+  if (auth.isLoggedIn && session?.serverId) {
+    try {
+      const detail = await getChatSession(session.serverId)
+      messages.value = detail.messages.map((item) => ({
+        id: String(item.id),
+        role: item.role,
+        content: item.content,
+        citations: item.citations,
+      }))
+      if (detail.modelId) {
+        selectedModelId.value = String(detail.modelId)
+      }
+      applyKbIds(detail.kbIds)
+      session.kbIds = [...selectedKbIds.value]
+    } catch (error) {
+      messages.value = []
+      const message = error instanceof Error ? error.message : '加载消息失败'
+      toast.error(message)
+    }
+  } else {
+    messages.value = []
+  }
   if (isMobile.value) {
     sidebarExpanded.value = false
   }
 }
 
-function createSession() {
-  const id = String(Date.now())
-  sessions.value.unshift({
-    id,
-    title: '新对话',
-    updatedAt: '刚刚',
-  })
-  activeSessionId.value = id
-  messages.value = []
-  pendingFileName.value = ''
-  draft.value = ''
-  stickToBottom.value = true
+/** 未登录时提示并弹出登录窗，返回 false */
+function requireLogin(tip = '请先登录后再使用聊天功能') {
+  if (auth.isLoggedIn) return true
+  toast.error(tip)
+  openAuth('login')
+  return false
+}
+
+async function createSession() {
+  if (!requireLogin('请先登录后再创建对话')) return
+  const blank = sessions.value.find((item) => item.title === '新对话')
+  if (blank) {
+    draft.value = ''
+    pendingFileName.value = ''
+    stickToBottom.value = true
+    if (blank.id === activeSessionId.value) {
+      if (isMobile.value) sidebarExpanded.value = false
+      return
+    }
+    await selectSession(blank.id)
+    return
+  }
+  selectedKbIds.value = []
+  try {
+    const created = await createChatSession({
+      modelId: selectedModelId.value ? Number(selectedModelId.value) : undefined,
+      kbIds: [],
+    })
+    const local = toLocalSession(created)
+    const idx = sessions.value.findIndex((item) => item.id === local.id)
+    if (idx >= 0) {
+      sessions.value.splice(idx, 1)
+    }
+    sessions.value.unshift(local)
+    activeSessionId.value = local.id
+    messages.value = []
+    pendingFileName.value = ''
+    draft.value = ''
+    stickToBottom.value = true
+    applyKbIds([])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '创建会话失败'
+    toast.error(message)
+  }
   if (isMobile.value) {
     sidebarExpanded.value = false
   }
 }
 
 async function sendMessage() {
+  if (!requireLogin('请先登录后再提问')) return
   const content = draft.value.trim()
   if ((!content && !pendingFileName.value) || asking.value) return
   if (!selectedModelId.value) {
     toast.error('请先选择模型')
     return
+  }
+  if (!activeSessionId.value) {
+    await createSession()
+    if (!activeSessionId.value) return
   }
   const text = pendingFileName.value
     ? `${content || '（已附加文件）'}\n[附件] ${pendingFileName.value}`
@@ -226,17 +384,14 @@ async function sendMessage() {
   messages.value.push({
     id: assistantId,
     role: 'assistant',
-    content: ragEnabled ? '正在检索知识库并生成回答…' : '正在生成回答…',
+    content: ragEnabled ? '正在检索知识库并生成回答…' : '正在思考…',
     pending: true,
     streaming: false,
     citations: [],
   })
 
   const active = sessions.value.find((item) => item.id === activeSessionId.value)
-  if (active && active.title === '新对话') {
-    active.title = text.slice(0, 24) || '新对话'
-    active.updatedAt = '刚刚'
-  }
+  const sessionId = active?.serverId
 
   asking.value = true
   stickToBottom.value = true
@@ -246,15 +401,27 @@ async function sendMessage() {
         kbIds: [...selectedKbIds.value],
         modelId: Number(selectedModelId.value),
         question,
+        sessionId,
       },
       {
         onCitations(citations) {
           const msg = messages.value.find((item) => item.id === assistantId)
           if (!msg) return
           msg.citations = citations || []
+          if (!ragEnabled) {
+            // Agent 模式：保留 pending 文案，等 tool / delta
+            return
+          }
           msg.content = ''
           msg.pending = false
           msg.streaming = true
+        },
+        onTool(tool) {
+          const msg = messages.value.find((item) => item.id === assistantId)
+          if (!msg) return
+          msg.content = tool.message || '正在调用工具…'
+          msg.pending = true
+          msg.streaming = false
         },
         onDelta(chunk) {
           const msg = messages.value.find((item) => item.id === assistantId)
@@ -269,12 +436,12 @@ async function sendMessage() {
         onDone(answer) {
           const msg = messages.value.find((item) => item.id === assistantId)
           if (!msg) return
-          // 最终以服务端完整 answer 为准做一次完整重渲染，避免流式中间修补残留
           if (typeof answer === 'string' && answer.length > 0) {
             msg.content = answer
           }
           msg.pending = false
           msg.streaming = false
+          void refreshSessionList()
         },
       },
     )
@@ -305,12 +472,40 @@ function openAuth(mode: 'login' | 'register' = 'login') {
   menuOpen.value = false
 }
 
+function placeUserMenu() {
+  const el = userPanelRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const menuWidth = 180
+  const gap = 8
+  let left = sidebarExpanded.value ? rect.left : rect.right + gap
+  if (left + menuWidth > window.innerWidth - 8) {
+    left = Math.max(8, rect.left - menuWidth - gap)
+  }
+  if (sidebarExpanded.value) {
+    left = rect.left
+  }
+  const bottom = Math.max(8, window.innerHeight - rect.top + gap)
+  userMenuStyle.value = {
+    position: 'fixed',
+    left: `${left}px`,
+    bottom: `${bottom}px`,
+    width: sidebarExpanded.value ? `${Math.max(rect.width, 160)}px` : `${menuWidth}px`,
+    zIndex: '4000',
+  }
+}
+
 function toggleUserMenu() {
   if (!auth.isLoggedIn) {
     openAuth('login')
     return
   }
-  menuOpen.value = !menuOpen.value
+  if (menuOpen.value) {
+    menuOpen.value = false
+    return
+  }
+  placeUserMenu()
+  menuOpen.value = true
 }
 
 function openProfile() {
@@ -335,7 +530,14 @@ async function confirmLogout() {
 }
 
 function onAttachClick() {
+  if (!requireLogin('请先登录后再添加附件')) return
   attachInput.value?.click()
+}
+
+function onComposerInteract() {
+  if (!auth.isLoggedIn) {
+    requireLogin()
+  }
 }
 
 function onAttachChange(event: Event) {
@@ -364,6 +566,13 @@ function syncViewport() {
   }
 }
 
+watch(
+  () => auth.isLoggedIn,
+  () => {
+    void loadSessions()
+  },
+)
+
 onMounted(async () => {
   syncViewport()
   window.addEventListener('resize', syncViewport)
@@ -372,6 +581,7 @@ onMounted(async () => {
   if (auth.isLoggedIn) {
     try {
       await auth.refreshProfile()
+      await loadSessions()
     } catch {
       auth.clearLocal()
     }
@@ -502,6 +712,7 @@ onUnmounted(() => {
       <div class="side-footer">
         <button
           v-if="auth.isLoggedIn"
+          ref="userPanelRef"
           type="button"
           class="user-panel"
           :class="{ compact: !sidebarExpanded }"
@@ -529,14 +740,20 @@ onUnmounted(() => {
             <small>点击登录 / 注册</small>
           </span>
         </button>
-
-        <div v-if="menuOpen && auth.isLoggedIn" class="user-menu" :class="{ compact: !sidebarExpanded }">
-          <button type="button" @click="openProfile">修改账户信息</button>
-          <button type="button" @click="openPassword">修改密码</button>
-          <button type="button" class="danger" @click="askLogout">退出登录</button>
-        </div>
       </div>
     </aside>
+
+    <Teleport to="body">
+      <div
+        v-if="menuOpen && auth.isLoggedIn"
+        class="user-menu"
+        :style="userMenuStyle"
+      >
+        <button type="button" @click="openProfile">修改账户信息</button>
+        <button type="button" @click="openPassword">修改密码</button>
+        <button type="button" class="danger" @click="askLogout">退出登录</button>
+      </div>
+    </Teleport>
 
     <section class="main" :class="{ empty: !hasMessages }">
       <input ref="attachInput" type="file" class="hidden-file" @change="onAttachChange" />
@@ -573,13 +790,15 @@ onUnmounted(() => {
       <div v-if="!hasMessages" class="empty-stage">
         <h1 class="hero-title">{{ heroTitle }}</h1>
         <div class="composer-wrap">
-          <div class="composer" :class="{ 'no-model': isMobile }">
-            <button type="button" class="attach" title="添加文件" @click="onAttachClick">＋</button>
+          <div class="composer" :class="{ 'no-model': isMobile }" @click="onComposerInteract">
+            <button type="button" class="attach" title="添加文件" @click.stop="onAttachClick">＋</button>
             <textarea
               v-model="draft"
               rows="1"
               placeholder="有问题就请问吧！"
               :disabled="asking"
+              :readonly="!auth.isLoggedIn"
+              @focus="onComposerInteract"
               @keydown.enter.exact.prevent="sendMessage"
             />
             <select
@@ -592,7 +811,7 @@ onUnmounted(() => {
                 {{ model.name }}
               </option>
             </select>
-            <button type="button" class="send" :disabled="!canSend" @click="sendMessage">
+            <button type="button" class="send" :disabled="!canSend" @click.stop="sendMessage">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                 <path d="M3.4 20.6l17.5-8.1c.8-.4.8-1.5 0-1.9L3.4 2.5c-.8-.4-1.6.4-1.3 1.2l2.5 6.5c.1.4.5.6.9.6h7.2c.4 0 .7.3.7.7s-.3.7-.7.7H5.5c-.4 0-.8.3-.9.6L2.1 19.4c-.3.8.5 1.6 1.3 1.2z" />
               </svg>
@@ -644,13 +863,15 @@ onUnmounted(() => {
         </div>
 
         <div class="composer-wrap docked">
-          <div class="composer" :class="{ 'no-model': isMobile }">
-            <button type="button" class="attach" title="添加文件" @click="onAttachClick">＋</button>
+          <div class="composer" :class="{ 'no-model': isMobile }" @click="onComposerInteract">
+            <button type="button" class="attach" title="添加文件" @click.stop="onAttachClick">＋</button>
             <textarea
               v-model="draft"
               rows="1"
               placeholder="有问题就请问吧！"
               :disabled="asking"
+              :readonly="!auth.isLoggedIn"
+              @focus="onComposerInteract"
               @keydown.enter.exact.prevent="sendMessage"
             />
             <select
@@ -663,7 +884,7 @@ onUnmounted(() => {
                 {{ model.name }}
               </option>
             </select>
-            <button type="button" class="send" :disabled="!canSend" @click="sendMessage">
+            <button type="button" class="send" :disabled="!canSend" @click.stop="sendMessage">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                 <path d="M3.4 20.6l17.5-8.1c.8-.4.8-1.5 0-1.9L3.4 2.5c-.8-.4-1.6.4-1.3 1.2l2.5 6.5c.1.4.5.6.9.6h7.2c.4 0 .7.3.7.7s-.3.7-.7.7H5.5c-.4 0-.8.3-.9.6L2.1 19.4c-.3.8.5 1.6 1.3 1.2z" />
               </svg>
@@ -678,7 +899,7 @@ onUnmounted(() => {
       v-model="selectedKbIds"
       :open="kbPickerOpen"
       :options="site.knowledgeBases"
-      @close="kbPickerOpen = false"
+      @close="onKbPickerClose"
     />
 
     <AuthModal :open="authOpen" :initial-mode="authMode" @close="authOpen = false" />
@@ -1128,10 +1349,6 @@ onUnmounted(() => {
 }
 
 .user-menu {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: calc(100% + 8px);
   background: #fff;
   border: 1px solid #e8e8e8;
   border-radius: 14px;
@@ -1139,13 +1356,6 @@ onUnmounted(() => {
   padding: 6px;
   display: flex;
   flex-direction: column;
-  z-index: 20;
-}
-
-.user-menu.compact {
-  left: 4px;
-  right: auto;
-  width: 180px;
 }
 
 .user-menu button {
