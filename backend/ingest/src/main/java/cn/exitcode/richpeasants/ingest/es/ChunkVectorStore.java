@@ -4,10 +4,13 @@ import cn.exitcode.richpeasants.common.exception.BusinessException;
 import cn.exitcode.richpeasants.common.result.ResultCode;
 import cn.exitcode.richpeasants.ingest.config.IngestAppProperties;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import co.elastic.clients.elasticsearch.indices.GetMappingResponse;
 import org.slf4j.Logger;
@@ -148,6 +151,119 @@ public class ChunkVectorStore {
         }
     }
 
+    /**
+     * 按知识库列表（空=全部）与可选 Embedding 模型做 dense_vector kNN 检索。
+     */
+    public List<RetrievedChunk> knnSearch(List<Long> kbIds, Long embeddingModelId, float[] queryVector, int topK) {
+        if (queryVector == null || queryVector.length == 0 || topK <= 0) {
+            return List.of();
+        }
+        String index = indexName();
+        try {
+            boolean exists = elasticsearchClient.indices()
+                    .exists(ExistsRequest.of(e -> e.index(index)))
+                    .value();
+            if (!exists) {
+                return List.of();
+            }
+            List<Float> vector = toFloatList(queryVector);
+            //取大概的前多少个
+            //ANN（近似最近邻，Approximate Nearest Neighbor） 算法。
+            int candidates = Math.max(topK * 10, 50);
+            List<Long> filterKbIds = kbIds == null ? List.of() : kbIds.stream()
+                    .filter(id -> id != null && id > 0)
+                    .distinct()
+                    .toList();
+
+            SearchResponse<Map> response = elasticsearchClient.search(s -> {
+                s.index(index)
+                        .size(topK)
+                        .source(src -> src.filter(f -> f.includes(
+                                "documentId", "kbId", "chunkId", "chunkIndex", "content", "modelId"
+                        )))
+                        .knn(k -> {
+                            k.field("embedding")
+                                    .queryVector(vector)
+                                    .k((long) topK)
+                                    .numCandidates((long) candidates)
+                                    .filter(f -> f.bool(b -> {
+                                        if (embeddingModelId != null) {
+                                            b.must(m -> m.term(t -> t.field("modelId").value(embeddingModelId)));
+                                        }
+                                        if (filterKbIds.size() == 1) {
+                                            Long only = filterKbIds.get(0);
+                                            b.must(m -> m.term(t -> t.field("kbId").value(only)));
+                                        } else if (filterKbIds.size() > 1) {
+                                            List<FieldValue> values = filterKbIds.stream()
+                                                    .map(FieldValue::of)
+                                                    .toList();
+                                            b.must(m -> m.terms(t -> t.field("kbId").terms(tv -> tv.value(values))));
+                                        }
+                                        return b;
+                                    }));
+                            return k;
+                        });
+                return s;
+            }, Map.class);
+
+            List<RetrievedChunk> hits = new ArrayList<>();
+            for (Hit<Map> hit : response.hits().hits()) {
+                Map<String, Object> source = hit.source();
+                if (source == null) {
+                    continue;
+                }
+                hits.add(new RetrievedChunk(
+                        asLong(source.get("chunkId")),
+                        asLong(source.get("documentId")),
+                        asLong(source.get("kbId")),
+                        asInt(source.get("chunkIndex")),
+                        asString(source.get("content")),
+                        hit.score() == null ? 0d : hit.score()
+                ));
+            }
+            return hits;
+        } catch (IOException ex) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "ES kNN 检索失败: " + ex.getMessage());
+        }
+    }
+
+    /** @deprecated 使用 {@link #knnSearch(List, Long, float[], int)} */
+    public List<RetrievedChunk> knnSearch(Long kbId, Long embeddingModelId, float[] queryVector, int topK) {
+        return knnSearch(kbId == null ? List.of() : List.of(kbId), embeddingModelId, queryVector, topK);
+    }
+
+    private static Long asLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Integer asInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static String asString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     public void indexChunks(Long documentId,
                             Long kbId,
                             Long modelId,
@@ -202,5 +318,13 @@ public class ChunkVectorStore {
     }
 
     public record ChunkVectorRecord(Long chunkId, Integer chunkIndex, String content, float[] embedding) {
+    }
+
+    public record RetrievedChunk(Long chunkId,
+                                 Long documentId,
+                                 Long kbId,
+                                 Integer chunkIndex,
+                                 String content,
+                                 double score) {
     }
 }

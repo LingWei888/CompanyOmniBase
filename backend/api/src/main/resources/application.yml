@@ -79,3 +79,10 @@ app:
     batch-size: 8
     connect-timeout-ms: 15000
     read-timeout-ms: 120000
+  rag:
+    top-k: 5
+    max-context-chars: 6000
+    citation-preview-chars: 240
+    connect-timeout-ms: 15000
+    read-timeout-ms: 120000
+    temperature: 0.2

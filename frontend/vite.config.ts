@@ -20,6 +20,20 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        timeout: 0,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            if (req.url?.includes('/ask/stream')) {
+              proxyReq.setHeader('Accept', 'text/event-stream')
+            }
+          })
+          proxy.on('proxyRes', (proxyRes, req) => {
+            if (req.url?.includes('/ask/stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache'
+              proxyRes.headers['x-accel-buffering'] = 'no'
+            }
+          })
+        },
       },
       '/actuator': {
         target: 'http://localhost:8080',

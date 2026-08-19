@@ -1,8 +1,8 @@
 # 企业知识库智能问答
 
-技术架构：LangChain4j + Spring Boot 3 + Elasticsearch + RabbitMQ + MySQL + Vue3
+技术架构：Spring Boot 3 + Elasticsearch + RabbitMQ + MySQL + MinIO + Vue3（自研 RAG，无 LangChain4j）
 
-## 当前进度（Day1 ~ Day4）
+## 当前进度（Day1 ~ Day8）
 
 ### Day1 工程骨架与基础设施
 - 后端多模块：`common` / `admin` / `rag` / `ingest` / `api`
@@ -38,6 +38,12 @@
 - OpenAI 兼容 Embedding → ES 索引 `kb_chunk_vector`（dense_vector + cosine）
 - Embedding 模型需配置 `purpose=EMBEDDING` 与 `embedding_dimension`
 
+### Day7 + Day8 问答与检索增强（自研 RAG）
+- ES kNN 按 `kbId`（+ Embedding `modelId`）检索 Top-K 片段
+- 组装带编号的参考资料 Prompt，调用 OpenAI 兼容 `/chat/completions`
+- `POST /api/public/chat/ask` 返回答案 + citations；`GET /api/public/knowledge-bases` 供前台选择知识库
+- 前台聊天页接入真实问答（会话历史仍为本地占位，SSE 留到后续）
+
 ---
 
 ## 目录结构
@@ -49,8 +55,8 @@ Project/
 │   ├── pom.xml                 # 父工程
 │   ├── common/                 # 公共：实体、JWT、统一响应
 │   ├── admin/                  # 后台鉴权与管理 API
-│   ├── rag/                    # RAG（后续）
-│   ├── ingest/                 # 入库：MQ 消费（Day4+）
+│   ├── rag/                    # RAG：检索 + 对话补全
+│   ├── ingest/                 # 入库：MQ / 解析 / Embedding / ES
 │   └── api/                    # 启动模块
 └── frontend/                   # Vue3 + Vite
 ```
@@ -103,10 +109,21 @@ curl -s http://localhost:8080/api/admin/dashboard/overview ^
   -H "Authorization: Bearer <accessToken>"
 ```
 
+## Day7~8 问答示例
+
+```bash
+# 列出已启用知识库
+curl -s http://localhost:8080/api/public/knowledge-bases
+
+# 检索增强问答（需已有 READY 文档与 CHAT / EMBEDDING 模型）
+curl -s http://localhost:8080/api/public/chat/ask ^
+  -H "Content-Type: application/json" ^
+  -d "{\"kbId\":1,\"modelId\":1,\"question\":\"请假需要提前几天申请？\"}"
+```
+
 ---
 
 ## 后续计划（摘要）
 
-- Day7~8：RAG 问答与检索增强（ES kNN）
-- Day9~11：聊天完善、SSE、后台运维
+- Day9~11：聊天会话持久化、SSE 流式输出、后台运维
 - Day12~14：稳定性与验收

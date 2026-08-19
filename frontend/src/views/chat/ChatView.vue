@@ -3,6 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AuthModal from '@/components/AuthModal.vue'
 import ProfileModal from '@/components/ProfileModal.vue'
 import PasswordModal from '@/components/PasswordModal.vue'
+import { askRagStream } from '@/api/chatStream'
+import type { RagCitation } from '@/api/chat'
+import MarkdownContent from '@/components/MarkdownContent.vue'
+import KnowledgeBasePickerModal from '@/components/KnowledgeBasePickerModal.vue'
 import { useUserAuthStore } from '@/stores/userAuth'
 import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
@@ -17,6 +21,9 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  citations?: RagCitation[]
+  pending?: boolean
+  streaming?: boolean
 }
 
 const auth = useUserAuthStore()
@@ -32,6 +39,11 @@ const sessions = ref<ChatSession[]>([
 const activeSessionId = ref('1')
 const draft = ref('')
 const selectedModelId = ref('')
+/** 空数组 = 关闭 RAG；默认加载后全选 */
+const selectedKbIds = ref<number[]>([])
+const kbSelectionReady = ref(false)
+const kbPickerOpen = ref(false)
+const asking = ref(false)
 const sidebarExpanded = ref(true)
 const searchOpen = ref(false)
 const searchKeyword = ref('')
@@ -45,6 +57,8 @@ const attachInput = ref<HTMLInputElement | null>(null)
 const pendingFileName = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const isMobile = ref(false)
+const stickToBottom = ref(true)
+const SCROLL_BOTTOM_GAP = 80
 
 const messages = ref<ChatMessage[]>([])
 
@@ -80,10 +94,28 @@ const selectedModelName = computed(() => {
   return found?.name || '选择模型'
 })
 
+const kbSummary = computed(() => {
+  const ids = selectedKbIds.value
+  const total = site.knowledgeBases.length
+  if (!ids.length) return '未启用知识库'
+  if (total > 0 && ids.length >= total) return '全部知识库'
+  if (ids.length === 1) {
+    const found = site.knowledgeBases.find((item) => item.id === ids[0])
+    return found?.name || '已选 1 个知识库'
+  }
+  return `已选 ${ids.length} 个知识库`
+})
+
+const kbRagOff = computed(() => selectedKbIds.value.length === 0)
+
 const filteredSessions = computed(() => {
   const key = searchKeyword.value.trim().toLowerCase()
   if (!key) return sessions.value
   return sessions.value.filter((item) => item.title.toLowerCase().includes(key))
+})
+
+const canSend = computed(() => {
+  return !asking.value && (!!draft.value.trim() || !!pendingFileName.value)
 })
 
 watch(
@@ -102,17 +134,52 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => [site.knowledgeBases, site.loaded] as const,
+  ([list, loaded]) => {
+    // 等站点配置拉取完成后再决定默认全选，避免空列表把「全不选」误当成用户选择
+    if (!loaded) return
+    const valid = new Set(list.map((item) => item.id))
+    if (!kbSelectionReady.value) {
+      selectedKbIds.value = list.map((item) => item.id)
+      kbSelectionReady.value = true
+      return
+    }
+    selectedKbIds.value = selectedKbIds.value.filter((id) => valid.has(id))
+  },
+  { immediate: true, deep: true },
+)
+
 watch(messages, async () => {
   await nextTick()
-  if (messagesEl.value) {
-    messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  }
+  scrollToBottomIfNeeded()
 }, { deep: true })
+
+function isNearBottom(el: HTMLElement) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_GAP
+}
+
+function onMessagesScroll() {
+  const el = messagesEl.value
+  if (!el) return
+  stickToBottom.value = isNearBottom(el)
+}
+
+function scrollToBottomIfNeeded() {
+  const el = messagesEl.value
+  if (!el || !stickToBottom.value) return
+  el.scrollTop = el.scrollHeight
+}
+
+function onAssistantRendered() {
+  scrollToBottomIfNeeded()
+}
 
 function selectSession(id: string) {
   activeSessionId.value = id
   messages.value = []
   pendingFileName.value = ''
+  stickToBottom.value = true
   if (isMobile.value) {
     sidebarExpanded.value = false
   }
@@ -129,14 +196,15 @@ function createSession() {
   messages.value = []
   pendingFileName.value = ''
   draft.value = ''
+  stickToBottom.value = true
   if (isMobile.value) {
     sidebarExpanded.value = false
   }
 }
 
-function sendMessage() {
+async function sendMessage() {
   const content = draft.value.trim()
-  if (!content && !pendingFileName.value) return
+  if ((!content && !pendingFileName.value) || asking.value) return
   if (!selectedModelId.value) {
     toast.error('请先选择模型')
     return
@@ -144,6 +212,7 @@ function sendMessage() {
   const text = pendingFileName.value
     ? `${content || '（已附加文件）'}\n[附件] ${pendingFileName.value}`
     : content
+  const question = content || text
   messages.value.push({
     id: `u-${Date.now()}`,
     role: 'user',
@@ -151,15 +220,82 @@ function sendMessage() {
   })
   draft.value = ''
   pendingFileName.value = ''
+
+  const assistantId = `a-${Date.now()}`
+  const ragEnabled = selectedKbIds.value.length > 0
   messages.value.push({
-    id: `a-${Date.now()}`,
+    id: assistantId,
     role: 'assistant',
-    content: `（演示）已使用「${selectedModelName.value}」接收消息，后端问答尚未接入。`,
+    content: ragEnabled ? '正在检索知识库并生成回答…' : '正在生成回答…',
+    pending: true,
+    streaming: false,
+    citations: [],
   })
+
   const active = sessions.value.find((item) => item.id === activeSessionId.value)
   if (active && active.title === '新对话') {
     active.title = text.slice(0, 24) || '新对话'
     active.updatedAt = '刚刚'
+  }
+
+  asking.value = true
+  stickToBottom.value = true
+  try {
+    await askRagStream(
+      {
+        kbIds: [...selectedKbIds.value],
+        modelId: Number(selectedModelId.value),
+        question,
+      },
+      {
+        onCitations(citations) {
+          const msg = messages.value.find((item) => item.id === assistantId)
+          if (!msg) return
+          msg.citations = citations || []
+          msg.content = ''
+          msg.pending = false
+          msg.streaming = true
+        },
+        onDelta(chunk) {
+          const msg = messages.value.find((item) => item.id === assistantId)
+          if (!msg) return
+          if (msg.pending) {
+            msg.content = ''
+            msg.pending = false
+            msg.streaming = true
+          }
+          msg.content += chunk
+        },
+        onDone(answer) {
+          const msg = messages.value.find((item) => item.id === assistantId)
+          if (!msg) return
+          // 最终以服务端完整 answer 为准做一次完整重渲染，避免流式中间修补残留
+          if (typeof answer === 'string' && answer.length > 0) {
+            msg.content = answer
+          }
+          msg.pending = false
+          msg.streaming = false
+        },
+      },
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '问答失败'
+    const msg = messages.value.find((item) => item.id === assistantId)
+    if (msg) {
+      if (!msg.content || msg.pending || msg.streaming) {
+        msg.content = `回答失败：${message}`
+      }
+      msg.pending = false
+      msg.streaming = false
+    }
+    toast.error(message)
+  } finally {
+    asking.value = false
+    const msg = messages.value.find((item) => item.id === assistantId)
+    if (msg) {
+      msg.pending = false
+      msg.streaming = false
+    }
   }
 }
 
@@ -311,6 +447,36 @@ onUnmounted(() => {
       </button>
       <button v-else type="button" class="rail-new" title="创建新对话" @click="createSession">＋</button>
 
+      <button
+        v-if="sidebarExpanded"
+        type="button"
+        class="kb-side-btn"
+        :class="{ off: kbRagOff }"
+        :disabled="asking"
+        :title="kbSummary"
+        @click="kbPickerOpen = true"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg>
+        <span class="kb-side-text">{{ kbSummary }}</span>
+      </button>
+      <button
+        v-else
+        type="button"
+        class="rail-kb"
+        :class="{ off: kbRagOff }"
+        :disabled="asking"
+        :title="kbSummary"
+        @click="kbPickerOpen = true"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg>
+      </button>
+
       <div v-if="sidebarExpanded && searchOpen" class="search-box">
         <input v-model="searchKeyword" placeholder="搜索历史对话" />
       </div>
@@ -412,7 +578,8 @@ onUnmounted(() => {
             <textarea
               v-model="draft"
               rows="1"
-              placeholder="有问题，尽管问"
+              placeholder="有问题就请问吧！"
+              :disabled="asking"
               @keydown.enter.exact.prevent="sendMessage"
             />
             <select
@@ -425,7 +592,7 @@ onUnmounted(() => {
                 {{ model.name }}
               </option>
             </select>
-            <button type="button" class="send" :disabled="!draft.trim() && !pendingFileName" @click="sendMessage">
+            <button type="button" class="send" :disabled="!canSend" @click="sendMessage">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                 <path d="M3.4 20.6l17.5-8.1c.8-.4.8-1.5 0-1.9L3.4 2.5c-.8-.4-1.6.4-1.3 1.2l2.5 6.5c.1.4.5.6.9.6h7.2c.4 0 .7.3.7.7s-.3.7-.7.7H5.5c-.4 0-.8.3-.9.6L2.1 19.4c-.3.8.5 1.6 1.3 1.2z" />
               </svg>
@@ -436,14 +603,43 @@ onUnmounted(() => {
       </div>
 
       <template v-else>
-        <div ref="messagesEl" class="messages">
+        <div ref="messagesEl" class="messages" @scroll.passive="onMessagesScroll">
           <div
             v-for="message in messages"
             :key="message.id"
             class="message"
             :class="message.role"
           >
-            <div class="bubble">{{ message.content }}</div>
+            <div class="bubble" :class="{ pending: message.pending }">
+              <template v-if="message.role === 'assistant'">
+                <span v-if="message.pending" class="plain-text stream">{{ message.content }}</span>
+                <MarkdownContent
+                  v-else
+                  :content="message.content"
+                  :streaming="!!message.streaming"
+                  @rendered="onAssistantRendered"
+                />
+              </template>
+              <span v-else class="plain-text">{{ message.content }}</span>
+            </div>
+            <div
+              v-if="message.role === 'assistant' && !message.pending && !message.streaming && message.citations?.length"
+              class="citations"
+            >
+              <div class="citations-title">参考来源</div>
+              <details
+                v-for="item in message.citations"
+                :key="`${message.id}-${item.rank}`"
+                class="citation"
+              >
+                <summary>
+                  [{{ item.rank }}] {{ item.documentTitle }}
+                  <span v-if="item.chunkIndex != null">#{{ item.chunkIndex }}</span>
+                  <span class="score">{{ item.score.toFixed(3) }}</span>
+                </summary>
+                <p>{{ item.content }}</p>
+              </details>
+            </div>
           </div>
         </div>
 
@@ -453,7 +649,8 @@ onUnmounted(() => {
             <textarea
               v-model="draft"
               rows="1"
-              placeholder="继续提问…"
+              placeholder="有问题就请问吧！"
+              :disabled="asking"
               @keydown.enter.exact.prevent="sendMessage"
             />
             <select
@@ -466,7 +663,7 @@ onUnmounted(() => {
                 {{ model.name }}
               </option>
             </select>
-            <button type="button" class="send" :disabled="!draft.trim() && !pendingFileName" @click="sendMessage">
+            <button type="button" class="send" :disabled="!canSend" @click="sendMessage">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                 <path d="M3.4 20.6l17.5-8.1c.8-.4.8-1.5 0-1.9L3.4 2.5c-.8-.4-1.6.4-1.3 1.2l2.5 6.5c.1.4.5.6.9.6h7.2c.4 0 .7.3.7.7s-.3.7-.7.7H5.5c-.4 0-.8.3-.9.6L2.1 19.4c-.3.8.5 1.6 1.3 1.2z" />
               </svg>
@@ -476,6 +673,13 @@ onUnmounted(() => {
         </div>
       </template>
     </section>
+
+    <KnowledgeBasePickerModal
+      v-model="selectedKbIds"
+      :open="kbPickerOpen"
+      :options="site.knowledgeBases"
+      @close="kbPickerOpen = false"
+    />
 
     <AuthModal :open="authOpen" :initial-mode="authMode" @close="authOpen = false" />
     <ProfileModal :open="profileOpen" @close="profileOpen = false" />
@@ -681,6 +885,74 @@ onUnmounted(() => {
 
 .rail-new:hover {
   background: #ececec;
+}
+
+.kb-side-btn {
+  margin-top: 4px;
+  width: 100%;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  background: #fff;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: #333;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.kb-side-btn:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.kb-side-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kb-side-btn.off {
+  color: #888;
+  border-style: dashed;
+  background: transparent;
+}
+
+.kb-side-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-kb {
+  width: 40px;
+  height: 40px;
+  margin: 4px auto 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #333;
+  flex-shrink: 0;
+}
+
+.rail-kb:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.rail-kb.off {
+  color: #999;
+  border-style: dashed;
+  background: transparent;
+}
+
+.rail-kb:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .search-box {
@@ -912,7 +1184,7 @@ onUnmounted(() => {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   padding: 0 16px;
   gap: 10px;
   min-height: 56px;
@@ -923,7 +1195,7 @@ onUnmounted(() => {
 }
 
 .top-model {
-  max-width: min(160px, 42vw);
+  max-width: min(200px, 46vw);
 }
 
 .plan-badge {
@@ -972,7 +1244,6 @@ onUnmounted(() => {
   padding: 12px 16px;
   border-radius: 18px;
   line-height: 1.65;
-  white-space: pre-wrap;
   word-break: break-word;
   font-size: 15px;
 }
@@ -984,10 +1255,83 @@ onUnmounted(() => {
   max-width: 100%;
 }
 
+.message.user .plain-text {
+  white-space: pre-wrap;
+  display: block;
+}
+
+.message.assistant .plain-text.stream {
+  white-space: pre-wrap;
+  display: inline;
+}
+
+.message.assistant .caret {
+  display: inline-block;
+  margin-left: 1px;
+  color: #888;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 .message.assistant .bubble {
   background: transparent;
   padding-left: 0;
   padding-right: 0;
+  width: 100%;
+  white-space: normal;
+}
+
+.message.assistant .bubble.pending {
+  color: #888;
+}
+
+.citations {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+.citations-title {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.citation {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #555;
+}
+
+.citation summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.citation summary::-webkit-details-marker {
+  display: none;
+}
+
+.citation .score {
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.citation p {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: #f7f7f7;
+  border-radius: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .composer-wrap {

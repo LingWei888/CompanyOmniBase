@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchPublicModels, fetchSiteInfo, type PublicModelOption, type SiteInfo } from '@/api/publicSite'
+import { fetchPublicModels, fetchPublicKnowledgeBases, fetchSiteInfo, type PublicModelOption, type PublicKnowledgeBaseOption, type SiteInfo } from '@/api/publicSite'
 
 const DEFAULT_SITE: SiteInfo = {
   siteName: '企业知识库智能问答',
@@ -32,6 +32,7 @@ function applyDocumentMeta(info: SiteInfo) {
 export const useSiteStore = defineStore('site', () => {
   const site = ref<SiteInfo>({ ...DEFAULT_SITE })
   const models = ref<PublicModelOption[]>([])
+  const knowledgeBases = ref<PublicKnowledgeBaseOption[]>([])
   const loaded = ref(false)
   const loading = ref(false)
 
@@ -44,19 +45,25 @@ export const useSiteStore = defineStore('site', () => {
     if (loaded.value && !force) return
     loading.value = true
     try {
-      const [siteInfo, modelList] = await Promise.all([fetchSiteInfo(), fetchPublicModels()])
+      const [siteInfo, modelList, kbList] = await Promise.all([
+        fetchSiteInfo(),
+        fetchPublicModels(),
+        fetchPublicKnowledgeBases(),
+      ])
       site.value = {
         siteName: siteInfo.siteName || DEFAULT_SITE.siteName,
         siteDescription: siteInfo.siteDescription || DEFAULT_SITE.siteDescription,
         siteLogo: siteInfo.siteLogo || '',
       }
       models.value = modelList
+      knowledgeBases.value = kbList
       applyDocumentMeta(site.value)
       loaded.value = true
     } catch {
       if (!loaded.value) {
         site.value = { ...DEFAULT_SITE }
         models.value = []
+        knowledgeBases.value = []
         applyDocumentMeta(site.value)
       }
     } finally {
@@ -71,6 +78,7 @@ export const useSiteStore = defineStore('site', () => {
   return {
     site,
     models,
+    knowledgeBases,
     loaded,
     loading,
     siteName,

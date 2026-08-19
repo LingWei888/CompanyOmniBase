@@ -16,4 +16,6 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
     Page<KnowledgeBase> findAllByOrderByIdDesc(Pageable pageable);
 
     List<KnowledgeBase> findAllByOrderByIdDesc();
+
+    List<KnowledgeBase> findByEnabledTrueOrderByIdAsc();
 }

@@ -1,8 +1,10 @@
 package cn.exitcode.richpeasants.api.publicapi;
 
+import cn.exitcode.richpeasants.common.entity.KnowledgeBase;
 import cn.exitcode.richpeasants.common.entity.LlmModel;
 import cn.exitcode.richpeasants.common.entity.SysConfig;
 import cn.exitcode.richpeasants.common.enums.LlmModelPurpose;
+import cn.exitcode.richpeasants.common.repository.KnowledgeBaseRepository;
 import cn.exitcode.richpeasants.common.repository.LlmModelRepository;
 import cn.exitcode.richpeasants.common.repository.SysConfigRepository;
 import cn.exitcode.richpeasants.common.result.ApiResult;
@@ -22,11 +24,14 @@ public class PublicSiteController {
 
     private final SysConfigRepository sysConfigRepository;
     private final LlmModelRepository llmModelRepository;
+    private final KnowledgeBaseRepository knowledgeBaseRepository;
 
     public PublicSiteController(SysConfigRepository sysConfigRepository,
-                                LlmModelRepository llmModelRepository) {
+                                LlmModelRepository llmModelRepository,
+                                KnowledgeBaseRepository knowledgeBaseRepository) {
         this.sysConfigRepository = sysConfigRepository;
         this.llmModelRepository = llmModelRepository;
+        this.knowledgeBaseRepository = knowledgeBaseRepository;
     }
 
     @GetMapping("/site")
@@ -52,8 +57,22 @@ public class PublicSiteController {
         return ApiResult.ok(list);
     }
 
+    @GetMapping("/knowledge-bases")
+    public ApiResult<List<PublicKnowledgeBaseOption>> knowledgeBases() {
+        List<PublicKnowledgeBaseOption> list = knowledgeBaseRepository
+                .findByEnabledTrueOrderByIdAsc()
+                .stream()
+                .map(this::toKbOption)
+                .collect(Collectors.toList());
+        return ApiResult.ok(list);
+    }
+
     private PublicModelOption toOption(LlmModel model) {
         return new PublicModelOption(model.getId(), model.getName(), model.getModelName(), model.getRemark());
+    }
+
+    private PublicKnowledgeBaseOption toKbOption(KnowledgeBase kb) {
+        return new PublicKnowledgeBaseOption(kb.getId(), kb.getName(), kb.getDescription());
     }
 
     private String firstNonBlank(String value, String fallback) {
