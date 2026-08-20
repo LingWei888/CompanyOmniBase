@@ -1,29 +1,28 @@
 import { computed, ref, watch } from 'vue'
 import {
-  createProblemConvertRecord,
-  deleteProblemConvertRecord,
-  getProblemConvertRecord,
-  listProblemConvertRecords,
-  updateProblemConvertRecord,
-  type ProblemConvertRecordDetail,
-  type ProblemConvertRecordItem,
-} from '@/api/problemConvertRecords'
+  createTestdataGenRecord,
+  deleteTestdataGenRecord,
+  getTestdataGenRecord,
+  listTestdataGenRecords,
+  updateTestdataGenRecord,
+  type TestdataGenRecordDetail,
+  type TestdataGenRecordItem,
+} from '@/api/testdataGenRecords'
 import { useUserAuthStore } from '@/stores/userAuth'
 
-const records = ref<ProblemConvertRecordItem[]>([])
+const records = ref<TestdataGenRecordItem[]>([])
 const activeRecordId = ref<number | null>(null)
-const activeDetail = ref<ProblemConvertRecordDetail | null>(null)
+const activeDetail = ref<TestdataGenRecordDetail | null>(null)
 const loading = ref(false)
 const ready = ref(false)
 
-export type ProblemConvertFlushPayload = {
-  referenceNickname: string
+export type TestdataGenFlushPayload = {
   originalText: string
-  resultMarkdown: string
+  resultPython: string
   solutionCode?: string
 }
 
-function sortRecords(list: ProblemConvertRecordItem[]) {
+function sortRecords(list: TestdataGenRecordItem[]) {
   return [...list].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
 }
 
@@ -34,23 +33,21 @@ function clearState() {
   ready.value = false
 }
 
-function isBlankDetail(detail: ProblemConvertRecordDetail | null | undefined) {
+function isBlankDetail(detail: TestdataGenRecordDetail | null | undefined) {
   if (!detail) return true
-  return !detail.referenceNickname?.trim()
-    && !detail.originalText?.trim()
-    && !detail.resultMarkdown?.trim()
+  return !detail.originalText?.trim()
+    && !detail.resultPython?.trim()
     && !detail.solutionCode?.trim()
 }
 
-function isBlankFlush(payload?: ProblemConvertFlushPayload | null) {
+function isBlankFlush(payload?: TestdataGenFlushPayload | null) {
   if (!payload) return true
-  return !payload.referenceNickname?.trim()
-    && !payload.originalText?.trim()
-    && !payload.resultMarkdown?.trim()
+  return !payload.originalText?.trim()
+    && !payload.resultPython?.trim()
     && !payload.solutionCode?.trim()
 }
 
-export function useProblemConvertRecords() {
+export function useTestdataGenRecords() {
   const auth = useUserAuthStore()
   const canUseRecords = computed(() => auth.isLoggedIn && auth.user?.id != null)
 
@@ -66,13 +63,13 @@ export function useProblemConvertRecords() {
       clearState()
       return
     }
-    const list = await listProblemConvertRecords()
+    const list = await listTestdataGenRecords()
     records.value = sortRecords(list)
   }
 
   async function loadDetail(id: number) {
     if (!canUseRecords.value) return null
-    const detail = await getProblemConvertRecord(id)
+    const detail = await getTestdataGenRecord(id)
     activeRecordId.value = detail.id
     activeDetail.value = detail
     return detail
@@ -107,7 +104,7 @@ export function useProblemConvertRecords() {
    * - 若当前本地有内容，先保存到当前记录，再新建空白
    * - 若已有空白草稿（含当前），复用，不重复创建
    */
-  async function createDraft(flush?: ProblemConvertFlushPayload | null) {
+  async function createDraft(flush?: TestdataGenFlushPayload | null) {
     if (!canUseRecords.value) return { detail: null, reused: false }
 
     loading.value = true
@@ -121,7 +118,7 @@ export function useProblemConvertRecords() {
       }
 
       const beforeId = activeRecordId.value
-      const detail = await createProblemConvertRecord()
+      const detail = await createTestdataGenRecord()
       await refreshList()
       activeRecordId.value = detail.id
       activeDetail.value = detail
@@ -146,19 +143,18 @@ export function useProblemConvertRecords() {
     }
   }
 
-  async function upsertCurrent(payload: ProblemConvertFlushPayload) {
+  async function upsertCurrent(payload: TestdataGenFlushPayload) {
     if (!canUseRecords.value) return null
     let id = activeRecordId.value
     if (id == null) {
-      const created = await createProblemConvertRecord()
+      const created = await createTestdataGenRecord()
       id = created.id
       activeRecordId.value = id
       activeDetail.value = created
     }
-    const detail = await updateProblemConvertRecord(id, {
-      referenceNickname: payload.referenceNickname,
+    const detail = await updateTestdataGenRecord(id, {
       originalText: payload.originalText,
-      resultMarkdown: payload.resultMarkdown,
+      resultPython: payload.resultPython,
       solutionCode: payload.solutionCode ?? '',
     })
     activeRecordId.value = detail.id
@@ -169,7 +165,7 @@ export function useProblemConvertRecords() {
 
   async function deleteRecord(id: number) {
     if (!canUseRecords.value) return
-    await deleteProblemConvertRecord(id)
+    await deleteTestdataGenRecord(id)
     if (activeRecordId.value === id) {
       activeRecordId.value = null
       activeDetail.value = null
@@ -180,13 +176,6 @@ export function useProblemConvertRecords() {
     } else if (activeRecordId.value == null) {
       await loadDetail(records.value[0].id)
     }
-  }
-
-  function formatRecordTime(iso: string) {
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return ''
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
   return {
@@ -202,6 +191,5 @@ export function useProblemConvertRecords() {
     selectRecord,
     upsertCurrent,
     deleteRecord,
-    formatRecordTime,
   }
 }

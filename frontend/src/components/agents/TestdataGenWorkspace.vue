@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import MarkdownContent from '@/components/MarkdownContent.vue'
-import { convertProblemStream } from '@/api/problemConvert'
-import { normalizeProblemMarkdown } from '@/utils/problemMarkdown'
-import { copyHtmlSource, copyTextPlain, markdownToExportHtml } from '@/utils/markdownFragment'
+import { generateTestdataScriptStream, stripPythonFences } from '@/api/testdataGen'
+import { copyTextPlain } from '@/utils/markdownFragment'
 import { normalizeSolutionCode, validateSolutionCode } from '@/utils/solutionCodeValidation'
-import { useProblemConvertRecords } from '@/composables/useProblemConvertRecords'
+import { useTestdataGenRecords } from '@/composables/useTestdataGenRecords'
 import { useToast } from '@/composables/useToast'
 import { useUserAuthStore } from '@/stores/userAuth'
 
@@ -16,16 +14,13 @@ const props = defineProps<{
 
 const toast = useToast()
 const auth = useUserAuthStore()
-const previewRef = ref<InstanceType<typeof MarkdownContent> | null>(null)
+const { activeDetail, upsertCurrent, ensureLoaded } = useTestdataGenRecords()
 
-const { activeDetail, upsertCurrent, ensureLoaded } = useProblemConvertRecords()
-
-const referenceNickname = ref('')
 const originalText = ref('')
-const resultMarkdown = ref('')
 const includeSolution = ref(false)
 const solutionCode = ref('')
-const converting = ref(false)
+const resultPython = ref('')
+const generating = ref(false)
 const streaming = ref(false)
 
 const solutionError = computed(() => {
@@ -35,11 +30,10 @@ const solutionError = computed(() => {
   return validateSolutionCode(text) ?? ''
 })
 
-const canConvert = computed(() => {
+const canGenerate = computed(() => {
   return (
-    !converting.value
+    !generating.value
     && !!props.modelId
-    && !!referenceNickname.value.trim()
     && !!originalText.value.trim()
     && !solutionError.value
   )
@@ -48,9 +42,8 @@ const canConvert = computed(() => {
 watch(
   activeDetail,
   (detail) => {
-    referenceNickname.value = detail?.referenceNickname ?? ''
     originalText.value = detail?.originalText ?? ''
-    resultMarkdown.value = detail?.resultMarkdown ?? ''
+    resultPython.value = detail?.resultPython ?? ''
     const savedSolution = detail?.solutionCode ?? ''
     solutionCode.value = savedSolution
     includeSolution.value = !!savedSolution.trim()
@@ -59,24 +52,23 @@ watch(
 )
 
 void ensureLoaded().catch((error) => {
-  const message = error instanceof Error ? error.message : '加载转换记录失败'
+  const message = error instanceof Error ? error.message : '加载生成记录失败'
   toast.error(message)
 })
 
 function getFlushPayload() {
   return {
-    referenceNickname: referenceNickname.value.trim(),
     originalText: originalText.value.trim(),
-    resultMarkdown: resultMarkdown.value,
+    resultPython: resultPython.value,
     solutionCode: includeSolution.value ? normalizeSolutionCode(solutionCode.value) : '',
   }
 }
 
 defineExpose({ getFlushPayload })
 
-async function onConvert() {
+async function onGenerate() {
   if (!auth.isLoggedIn) {
-    toast.error('请先登录后再使用题意修改智能体')
+    toast.error('请先登录后再使用数据生成智能体')
     return
   }
   if (!props.modelId) {
@@ -87,111 +79,79 @@ async function onConvert() {
     toast.error(solutionError.value)
     return
   }
-  if (!canConvert.value) return
+  if (!canGenerate.value) return
 
   const solution = includeSolution.value ? normalizeSolutionCode(solutionCode.value) : ''
 
-  converting.value = true
+  generating.value = true
   streaming.value = true
-  resultMarkdown.value = ''
+  resultPython.value = ''
   let streamBuf = ''
 
   try {
-    await convertProblemStream(
+    await generateTestdataScriptStream(
       {
         modelId: Number(props.modelId),
-        referenceNickname: referenceNickname.value.trim() || undefined,
         originalText: originalText.value.trim(),
         ...(solution ? { solutionCode: solution } : {}),
       },
       {
         onDelta(chunk) {
           streamBuf += chunk
-          resultMarkdown.value = streamBuf
+          resultPython.value = streamBuf
         },
-        async onDone(markdown) {
-          const title = referenceNickname.value.trim()
-          const raw = markdown || streamBuf
-          resultMarkdown.value = title ? normalizeProblemMarkdown(raw, title) : raw
-          // 一收到完成事件就结束「转换中」，保存记录放到后面，避免 SSE 未关闭时按钮一直卡住
+        async onDone(python) {
+          const raw = python || streamBuf
+          resultPython.value = stripPythonFences(raw)
           streaming.value = false
-          converting.value = false
+          generating.value = false
           try {
             await upsertCurrent({
-              referenceNickname: referenceNickname.value.trim(),
               originalText: originalText.value.trim(),
-              resultMarkdown: resultMarkdown.value,
+              resultPython: resultPython.value,
               solutionCode: solution,
             })
           } catch (error) {
-            const message = error instanceof Error ? error.message : '保存转换记录失败'
+            const message = error instanceof Error ? error.message : '保存生成记录失败'
             toast.error(message)
           }
         },
       },
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : '转换失败'
+    const message = error instanceof Error ? error.message : '生成失败'
     toast.error(message)
     streaming.value = false
-    converting.value = false
+    generating.value = false
   } finally {
-    converting.value = false
+    generating.value = false
     streaming.value = false
   }
 }
 
-async function onCopyMarkdown() {
-  const text = resultMarkdown.value.trim()
-  if (!text) {
+async function onCopyPython() {
+  const text = stripPythonFences(resultPython.value)
+  if (!text.trim()) {
     toast.error('暂无可复制内容')
     return
   }
   try {
     await copyTextPlain(text)
-    toast.success('已复制 Markdown')
+    toast.success('已复制 Python 程序')
   } catch {
     toast.error('复制失败，请手动选择复制')
   }
-}
-
-async function onCopyHtml() {
-  const md = resultMarkdown.value.trim()
-  if (!md) {
-    toast.error('暂无可复制内容')
-    return
-  }
-  try {
-    const html = markdownToExportHtml(md)
-    await copyHtmlSource(html)
-    toast.success('已复制 HTML 源码')
-  } catch {
-    toast.error('复制失败，请手动选择复制')
-  }
-}
-
-function onFragmentCopied(format: 'html' | 'markdown') {
-  toast.success(format === 'html' ? '已复制选中 HTML 源码' : '已复制选中 Markdown 片段')
-}
-
-function onFragmentCopyFailed() {
-  toast.error('片段复制失败，请重试')
 }
 
 function onClearForm() {
-  referenceNickname.value = ''
   originalText.value = ''
-  resultMarkdown.value = ''
   includeSolution.value = false
   solutionCode.value = ''
+  resultPython.value = ''
 }
 
 function onToggleSolution(event: Event) {
-  const checked = (event.target as HTMLInputElement).checked
-  includeSolution.value = checked
-  if (!checked) {
-    // 取消勾选时保留文本，方便再次打开；不强制清空
-  }
+  includeSolution.value = (event.target as HTMLInputElement).checked
 }
 </script>
 
@@ -199,33 +159,22 @@ function onToggleSolution(event: Event) {
   <div class="workspace">
     <header class="ws-head">
       <div class="ws-head-main">
-        <h1>题意修改智能体</h1>
-        <p>按目标标题改写题面叙事；输入输出、样例与数据范围与原题保持一致</p>
+        <h1>数据生成智能体</h1>
+        <p>根据题面（可选题解）生成 Python 脚本；本机运行后产出成对数据：1.in/1.out … N.in/N.out</p>
       </div>
       <div v-if="modelName" class="model-tag">模型：{{ modelName }}</div>
     </header>
 
     <div class="ws-body">
       <section class="panel input-panel">
-        <label class="field">
-          <span class="label">目标标题 <em class="req">*</em></span>
-          <input
-            v-model="referenceNickname"
-            type="text"
-            placeholder="如：小码的暴击游戏（将替换原题首行 # 标题）"
-            :disabled="converting"
-          />
-          <small>必填。输出题面的一级标题将使用此名称。</small>
-        </label>
-
         <div class="field grow">
           <div class="field-head">
             <span class="label">原题全文 <em class="req">*</em></span>
-            <label class="solution-toggle" title="勾选后可粘贴题解，用于锚定算法意图">
+            <label class="solution-toggle" title="勾选后可粘贴题解，用于生成正确 .out">
               <input
                 type="checkbox"
                 :checked="includeSolution"
-                :disabled="converting"
+                :disabled="generating"
                 @change="onToggleSolution"
               />
               <span>加入题解</span>
@@ -233,15 +182,15 @@ function onToggleSolution(event: Event) {
           </div>
           <textarea
             v-model="originalText"
-            placeholder="粘贴完整原题 Markdown…"
-            :disabled="converting"
+            placeholder="粘贴完整原题（含输入格式与数据范围）…"
+            :disabled="generating"
           />
           <div v-if="includeSolution" class="solution-block">
             <textarea
               v-model="solutionCode"
               class="solution-textarea"
               placeholder="粘贴题解 / 标程（建议 ```cpp 代码块）…"
-              :disabled="converting"
+              :disabled="generating"
             />
             <p v-if="solutionError" class="solution-error">{{ solutionError }}</p>
             <p v-else-if="solutionCode.trim() && !solutionError" class="solution-ok">题解格式检查通过</p>
@@ -249,44 +198,33 @@ function onToggleSolution(event: Event) {
         </div>
 
         <div class="panel-actions">
-          <button type="button" class="ghost" :disabled="converting" @click="onClearForm">清空表单</button>
-          <button type="button" class="primary" :disabled="!canConvert" @click="onConvert">
-            {{ converting ? '转换中…' : '一键转换' }}
+          <button type="button" class="ghost" :disabled="generating" @click="onClearForm">清空表单</button>
+          <button type="button" class="primary" :disabled="!canGenerate" @click="onGenerate">
+            {{ generating ? '生成中…' : '生成 Python 程序' }}
           </button>
         </div>
       </section>
 
       <section class="panel preview-panel">
         <div class="output-head">
-          <h2>转换结果预览</h2>
+          <h2>Python 生成脚本</h2>
           <div class="copy-group">
-            <button type="button" class="copy" :disabled="!resultMarkdown || converting" @click="onCopyMarkdown">
-              复制 Markdown
-            </button>
-            <button type="button" class="copy" :disabled="!resultMarkdown || converting" @click="onCopyHtml">
-              复制 HTML 源码
+            <button type="button" class="copy" :disabled="!resultPython.trim() || generating" @click="onCopyPython">
+              复制 Python 程序
             </button>
           </div>
         </div>
 
-        <div v-if="converting && !resultMarkdown" class="placeholder">正在转换题面，请稍候…</div>
-        <div v-else-if="!resultMarkdown" class="placeholder">
-          填写原题后点击「一键转换」，此处预览转换结果
+        <div v-if="generating && !resultPython" class="placeholder">正在生成脚本，请稍候…</div>
+        <div v-else-if="!resultPython" class="placeholder">
+          填写原题后点击「生成 Python 程序」，脚本将显示在此处
         </div>
-        <div v-else class="preview">
-          <MarkdownContent
-            ref="previewRef"
-            :content="resultMarkdown"
-            :source-markdown="resultMarkdown"
-            :fragment-copy="!streaming"
-            :streaming="streaming"
-            @fragment-copied="onFragmentCopied"
-            @fragment-copy-failed="onFragmentCopyFailed"
-          />
-          <p class="preview-hint">
-            选中预览区内容后<strong>右键</strong>，可复制 HTML 源码或 Markdown 片段
-          </p>
-        </div>
+        <pre v-else class="code-preview" :class="{ streaming }"><code>{{ resultPython }}</code></pre>
+        <p v-if="resultPython" class="preview-hint">
+          复制后保存为 <code>gen.py</code>，执行例如
+          <code>python gen.py --out testdata --count 20 --seed 1</code>
+          → 得到 <code>1.in</code>/<code>1.out</code> … <code>20.in</code>/<code>20.out</code>
+        </p>
       </section>
     </div>
   </div>
@@ -393,17 +331,11 @@ function onToggleSolution(event: Event) {
   color: #333;
 }
 
-.field small {
-  font-size: 12px;
-  color: #999;
-}
-
 .req {
   color: #c0392b;
   font-style: normal;
 }
 
-.field input,
 .field textarea {
   width: 100%;
   box-sizing: border-box;
@@ -413,9 +345,6 @@ function onToggleSolution(event: Event) {
   font: inherit;
   font-size: 14px;
   background: #fff;
-}
-
-.field textarea {
   flex: 1;
   min-height: 160px;
   resize: none;
@@ -552,18 +481,6 @@ function onToggleSolution(event: Event) {
   white-space: nowrap;
 }
 
-.preview-hint {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: #999;
-  line-height: 1.5;
-}
-
-.preview-hint strong {
-  color: #666;
-  font-weight: 600;
-}
-
 .placeholder {
   flex: 1;
   min-height: 0;
@@ -578,14 +495,44 @@ function onToggleSolution(event: Event) {
   background: #fff;
 }
 
-.preview {
+.code-preview {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: #fff;
-  border: 1px solid #eee;
+  margin: 0;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #333;
   border-radius: 12px;
   padding: 14px 16px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
+.code-preview.streaming {
+  outline: 1px solid #555;
+}
+
+.code-preview code {
+  font: inherit;
+  color: inherit;
+}
+
+.preview-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.preview-hint code {
+  font-size: 11px;
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 @media (max-width: 1100px) {
@@ -649,7 +596,7 @@ function onToggleSolution(event: Event) {
   }
 
   .placeholder,
-  .preview {
+  .code-preview {
     min-height: 220px;
     height: 42vh;
     max-height: 420px;

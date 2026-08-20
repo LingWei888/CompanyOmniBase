@@ -15,11 +15,13 @@ import {
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import KnowledgeBasePickerModal from '@/components/KnowledgeBasePickerModal.vue'
 import ProblemConvertWorkspace from '@/components/agents/ProblemConvertWorkspace.vue'
+import TestdataGenWorkspace from '@/components/agents/TestdataGenWorkspace.vue'
 import { AGENT_LIST, findAgent, type AgentId } from '@/agents/registry'
 import { useUserAuthStore } from '@/stores/userAuth'
 import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
 import { useProblemConvertRecords } from '@/composables/useProblemConvertRecords'
+import { useTestdataGenRecords } from '@/composables/useTestdataGenRecords'
 
 interface ChatSession {
   id: string
@@ -48,6 +50,13 @@ const {
   createDraft: createConvertDraft,
   selectRecord: selectConvertRecord,
 } = useProblemConvertRecords()
+const {
+  records: testdataRecords,
+  activeRecordId: activeTestdataRecordId,
+  ensureLoaded: ensureTestdataRecordsLoaded,
+  createDraft: createTestdataDraft,
+  selectRecord: selectTestdataRecord,
+} = useTestdataGenRecords()
 
 const sessions = ref<ChatSession[]>([])
 const activeSessionId = ref('')
@@ -132,6 +141,10 @@ const kbRagOff = computed(() => selectedKbIds.value.length === 0)
 
 const activeAgentName = computed(() => findAgent(activeAgentId.value)?.name || '')
 const inProblemConvert = computed(() => activeAgentId.value === 'problem-convert')
+const inTestdataGen = computed(() => activeAgentId.value === 'testdata-gen')
+const inAgentWorkspace = computed(() => inProblemConvert.value || inTestdataGen.value)
+const problemConvertRef = ref<InstanceType<typeof ProblemConvertWorkspace> | null>(null)
+const testdataGenRef = ref<InstanceType<typeof TestdataGenWorkspace> | null>(null)
 
 const filteredSessions = computed(() => {
   const key = searchKeyword.value.trim().toLowerCase()
@@ -145,9 +158,27 @@ const filteredConvertRecords = computed(() => {
   return convertRecords.value.filter((item) => item.title.toLowerCase().includes(key))
 })
 
-const historyLabel = computed(() => (inProblemConvert.value ? '最近转换记录' : '最近'))
-const newEntryLabel = computed(() => (inProblemConvert.value ? '创建新转换' : '创建新对话'))
-const searchPlaceholder = computed(() => (inProblemConvert.value ? '搜索转换记录' : '搜索历史对话'))
+const historyLabel = computed(() => {
+  if (inProblemConvert.value) return '最近转换记录'
+  if (inTestdataGen.value) return '最近生成记录'
+  return '最近'
+})
+const newEntryLabel = computed(() => {
+  if (inProblemConvert.value) return '创建新转换'
+  if (inTestdataGen.value) return '创建新生成'
+  return '创建新对话'
+})
+const searchPlaceholder = computed(() => {
+  if (inProblemConvert.value) return '搜索转换记录'
+  if (inTestdataGen.value) return '搜索生成记录'
+  return '搜索历史对话'
+})
+
+const filteredTestdataRecords = computed(() => {
+  const key = searchKeyword.value.trim().toLowerCase()
+  if (!key) return testdataRecords.value
+  return testdataRecords.value.filter((item) => item.title.toLowerCase().includes(key))
+})
 
 const canSend = computed(() => {
   return !asking.value && (!!draft.value.trim() || !!pendingFileName.value)
@@ -345,6 +376,11 @@ function onAgentSelect(id: AgentId) {
       const message = error instanceof Error ? error.message : '加载转换记录失败'
       toast.error(message)
     })
+  } else if (id === 'testdata-gen') {
+    void ensureTestdataRecordsLoaded().catch((error) => {
+      const message = error instanceof Error ? error.message : '加载生成记录失败'
+      toast.error(message)
+    })
   }
 }
 
@@ -358,9 +394,27 @@ async function onCreateSidebarEntry() {
   if (inProblemConvert.value) {
     if (!requireLogin('请先登录后再创建转换')) return
     try {
-      await createConvertDraft()
+      const flush = problemConvertRef.value?.getFlushPayload?.() ?? null
+      const { reused } = await createConvertDraft(flush)
+      if (reused) {
+        toast.success('已有空白草稿，未重复创建')
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '创建转换失败'
+      toast.error(message)
+    }
+    return
+  }
+  if (inTestdataGen.value) {
+    if (!requireLogin('请先登录后再创建生成')) return
+    try {
+      const flush = testdataGenRef.value?.getFlushPayload?.() ?? null
+      const { reused } = await createTestdataDraft(flush)
+      if (reused) {
+        toast.success('已有空白草稿，未重复创建')
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建生成失败'
       toast.error(message)
     }
     return
@@ -373,6 +427,15 @@ async function onSelectConvertRecord(id: number) {
     await selectConvertRecord(id)
   } catch (error) {
     const message = error instanceof Error ? error.message : '加载转换记录失败'
+    toast.error(message)
+  }
+}
+
+async function onSelectTestdataRecord(id: number) {
+  try {
+    await selectTestdataRecord(id)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载生成记录失败'
     toast.error(message)
   }
 }
@@ -814,7 +877,7 @@ onUnmounted(() => {
       <button v-else type="button" class="rail-new" :title="newEntryLabel" @click="onCreateSidebarEntry">＋</button>
 
       <button
-        v-if="sidebarExpanded && !inProblemConvert"
+        v-if="sidebarExpanded && !inAgentWorkspace"
         type="button"
         class="kb-side-btn"
         :class="{ off: kbRagOff }"
@@ -829,7 +892,7 @@ onUnmounted(() => {
         <span class="kb-side-text">{{ kbSummary }}</span>
       </button>
       <button
-        v-else-if="!inProblemConvert"
+        v-else-if="!inAgentWorkspace"
         type="button"
         class="rail-kb"
         :class="{ off: kbRagOff }"
@@ -888,6 +951,22 @@ onUnmounted(() => {
             :class="{ active: record.id === activeConvertRecordId, compact: !sidebarExpanded }"
             :title="record.title"
             @click="onSelectConvertRecord(record.id)"
+          >
+            <span class="dot" />
+            <span v-if="sidebarExpanded" class="history-text">
+              <span class="history-title">{{ record.title }}</span>
+            </span>
+          </button>
+        </template>
+        <template v-else-if="inTestdataGen">
+          <button
+            v-for="record in filteredTestdataRecords"
+            :key="record.id"
+            type="button"
+            class="history-item"
+            :class="{ active: record.id === activeTestdataRecordId, compact: !sidebarExpanded }"
+            :title="record.title"
+            @click="onSelectTestdataRecord(record.id)"
           >
             <span class="dot" />
             <span v-if="sidebarExpanded" class="history-text">
@@ -991,6 +1070,13 @@ onUnmounted(() => {
     <section class="main" :class="{ empty: !hasMessages && !activeAgentId, agent: !!activeAgentId }">
       <ProblemConvertWorkspace
         v-if="activeAgentId === 'problem-convert'"
+        ref="problemConvertRef"
+        :model-id="selectedModelId"
+        :model-name="selectedModelName"
+      />
+      <TestdataGenWorkspace
+        v-else-if="activeAgentId === 'testdata-gen'"
+        ref="testdataGenRef"
         :model-id="selectedModelId"
         :model-name="selectedModelName"
       />
@@ -1827,6 +1913,13 @@ onUnmounted(() => {
   flex-direction: column;
   grid-template-rows: unset;
   overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .main.agent {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .topbar {
