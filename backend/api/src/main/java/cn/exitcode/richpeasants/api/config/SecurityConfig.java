@@ -2,6 +2,7 @@ package cn.exitcode.richpeasants.api.config;
 
 import cn.exitcode.richpeasants.common.security.JwtAuthenticationFilter;
 import cn.exitcode.richpeasants.common.security.RestAuthHandlers;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -44,6 +45,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(restAuthHandlers)
                         .accessDeniedHandler(restAuthHandlers))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE / 异步结束后的 ASYNC 派发不再带 SecurityContext，需放行（首请求 REQUEST 仍鉴权）
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/api/admin/auth/login", "/api/admin/auth/refresh").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/refresh").permitAll()
@@ -51,7 +54,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/auth/profile", "/api/auth/password", "/api/auth/avatar").hasRole("USER")
-                        .requestMatchers("/api/auth/chat/**").hasRole("USER")
+                        .requestMatchers("/api/auth/chat/**", "/api/auth/agents/**").hasRole("USER")
                         .requestMatchers("/api/**").permitAll()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

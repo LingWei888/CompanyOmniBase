@@ -14,9 +14,12 @@ import {
 } from '@/api/chatSession'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import KnowledgeBasePickerModal from '@/components/KnowledgeBasePickerModal.vue'
+import ProblemConvertWorkspace from '@/components/agents/ProblemConvertWorkspace.vue'
+import { AGENT_LIST, findAgent, type AgentId } from '@/agents/registry'
 import { useUserAuthStore } from '@/stores/userAuth'
 import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
+import { useProblemConvertRecords } from '@/composables/useProblemConvertRecords'
 
 interface ChatSession {
   id: string
@@ -38,6 +41,13 @@ interface ChatMessage {
 const auth = useUserAuthStore()
 const site = useSiteStore()
 const toast = useToast()
+const {
+  records: convertRecords,
+  activeRecordId: activeConvertRecordId,
+  ensureLoaded: ensureConvertRecordsLoaded,
+  createDraft: createConvertDraft,
+  selectRecord: selectConvertRecord,
+} = useProblemConvertRecords()
 
 const sessions = ref<ChatSession[]>([])
 const activeSessionId = ref('')
@@ -47,6 +57,9 @@ const selectedModelId = ref('')
 const selectedKbIds = ref<number[]>([])
 const kbSelectionReady = ref(false)
 const kbPickerOpen = ref(false)
+const agentMenuOpen = ref(false)
+const dotsAnimating = ref(false)
+const activeAgentId = ref<AgentId | null>(null)
 const asking = ref(false)
 const sidebarExpanded = ref(true)
 const searchOpen = ref(false)
@@ -59,12 +72,15 @@ const passwordOpen = ref(false)
 const logoutConfirmOpen = ref(false)
 const attachInput = ref<HTMLInputElement | null>(null)
 const userPanelRef = ref<HTMLElement | null>(null)
+const moreAgentsBtnRef = ref<HTMLElement | null>(null)
+const railMoreBtnRef = ref<HTMLElement | null>(null)
 const pendingFileName = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const isMobile = ref(false)
 const stickToBottom = ref(true)
 const SCROLL_BOTTOM_GAP = 80
 const userMenuStyle = ref<Record<string, string>>({})
+const agentMenuStyle = ref<Record<string, string>>({})
 
 const messages = ref<ChatMessage[]>([])
 
@@ -114,11 +130,24 @@ const kbSummary = computed(() => {
 
 const kbRagOff = computed(() => selectedKbIds.value.length === 0)
 
+const activeAgentName = computed(() => findAgent(activeAgentId.value)?.name || '')
+const inProblemConvert = computed(() => activeAgentId.value === 'problem-convert')
+
 const filteredSessions = computed(() => {
   const key = searchKeyword.value.trim().toLowerCase()
   if (!key) return sessions.value
   return sessions.value.filter((item) => item.title.toLowerCase().includes(key))
 })
+
+const filteredConvertRecords = computed(() => {
+  const key = searchKeyword.value.trim().toLowerCase()
+  if (!key) return convertRecords.value
+  return convertRecords.value.filter((item) => item.title.toLowerCase().includes(key))
+})
+
+const historyLabel = computed(() => (inProblemConvert.value ? '最近转换记录' : '最近'))
+const newEntryLabel = computed(() => (inProblemConvert.value ? '创建新转换' : '创建新对话'))
+const searchPlaceholder = computed(() => (inProblemConvert.value ? '搜索转换记录' : '搜索历史对话'))
 
 const canSend = computed(() => {
   return !asking.value && (!!draft.value.trim() || !!pendingFileName.value)
@@ -233,6 +262,119 @@ async function onKbPickerClose() {
   kbPickerOpen.value = false
   await nextTick()
   await persistKbSelection()
+}
+
+function placeAgentMenu() {
+  const el = sidebarExpanded.value ? moreAgentsBtnRef.value : railMoreBtnRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const menuWidth = sidebarExpanded.value ? Math.max(rect.width, 220) : 240
+  const gap = 8
+  const margin = 8
+  let left = sidebarExpanded.value ? rect.left : rect.right + gap
+  if (left + menuWidth > window.innerWidth - margin) {
+    left = Math.max(margin, rect.left - menuWidth - gap)
+  }
+  if (sidebarExpanded.value) {
+    left = Math.min(rect.left, window.innerWidth - menuWidth - margin)
+    left = Math.max(margin, left)
+  }
+
+  const spaceAbove = Math.max(0, rect.top - margin)
+  const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - margin)
+  const preferredMax = 420
+  const menuEl = document.querySelector('.agent-menu') as HTMLElement | null
+  const contentHeight = menuEl?.scrollHeight ?? preferredMax
+  // 进入智能体后菜单更高，优先向上；上方不够则改为向下，并限制 maxHeight 避免超出视口
+  const needHeight = Math.min(preferredMax, contentHeight)
+  const openUpward = (spaceAbove >= needHeight + gap) || (spaceAbove >= spaceBelow && spaceAbove >= 140)
+
+  if (openUpward) {
+    const maxHeight = Math.max(120, Math.min(preferredMax, spaceAbove - gap))
+    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
+    agentMenuStyle.value = {
+      position: 'fixed',
+      left: `${left}px`,
+      right: 'auto',
+      top: 'auto',
+      bottom: `${bottom}px`,
+      width: `${menuWidth}px`,
+      maxHeight: `${maxHeight}px`,
+      zIndex: '4000',
+    }
+  } else {
+    const maxHeight = Math.max(120, Math.min(preferredMax, spaceBelow - gap))
+    const top = Math.min(rect.bottom + gap, window.innerHeight - margin - 120)
+    agentMenuStyle.value = {
+      position: 'fixed',
+      left: `${left}px`,
+      right: 'auto',
+      top: `${Math.max(margin, top)}px`,
+      bottom: 'auto',
+      width: `${menuWidth}px`,
+      maxHeight: `${maxHeight}px`,
+      zIndex: '4000',
+    }
+  }
+}
+
+function toggleAgentMenu() {
+  if (agentMenuOpen.value) {
+    agentMenuOpen.value = false
+    return
+  }
+  menuOpen.value = false
+  dotsAnimating.value = true
+  window.setTimeout(() => {
+    dotsAnimating.value = false
+  }, 700)
+  agentMenuOpen.value = true
+  void nextTick(() => {
+    placeAgentMenu()
+    // 菜单含「返回对话」等动态内容，再量一次避免顶部被裁切
+    requestAnimationFrame(() => placeAgentMenu())
+  })
+}
+
+function onAgentSelect(id: AgentId) {
+  if (!requireLogin('请先登录后再使用智能体')) return
+  activeAgentId.value = id
+  agentMenuOpen.value = false
+  if (id === 'problem-convert') {
+    void ensureConvertRecordsLoaded().catch((error) => {
+      const message = error instanceof Error ? error.message : '加载转换记录失败'
+      toast.error(message)
+    })
+  }
+}
+
+function backToChat() {
+  activeAgentId.value = null
+  agentMenuOpen.value = false
+  searchKeyword.value = ''
+}
+
+async function onCreateSidebarEntry() {
+  if (inProblemConvert.value) {
+    if (!requireLogin('请先登录后再创建转换')) return
+    try {
+      await createConvertDraft()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建转换失败'
+      toast.error(message)
+    }
+    return
+  }
+  await createSession()
+}
+
+async function onSelectConvertRecord(id: number) {
+  try {
+    await selectConvertRecord(id)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载转换记录失败'
+    toast.error(message)
+  }
 }
 
 async function refreshSessionList() {
@@ -504,6 +646,7 @@ function toggleUserMenu() {
     menuOpen.value = false
     return
   }
+  agentMenuOpen.value = false
   placeUserMenu()
   menuOpen.value = true
 }
@@ -552,6 +695,13 @@ function onDocClick(event: MouseEvent) {
   if (!target?.closest('.user-panel') && !target?.closest('.user-menu')) {
     menuOpen.value = false
   }
+  if (
+    !target?.closest('.more-agents-btn')
+    && !target?.closest('.rail-more')
+    && !target?.closest('.agent-menu')
+  ) {
+    agentMenuOpen.value = false
+  }
 }
 
 function syncViewport() {
@@ -564,11 +714,17 @@ function syncViewport() {
   if (!mobile && wasMobile) {
     sidebarExpanded.value = true
   }
+  if (menuOpen.value) placeUserMenu()
+  if (agentMenuOpen.value) placeAgentMenu()
 }
 
 watch(
   () => auth.isLoggedIn,
-  () => {
+  (loggedIn) => {
+    if (!loggedIn) {
+      activeAgentId.value = null
+      agentMenuOpen.value = false
+    }
     void loadSessions()
   },
 )
@@ -651,14 +807,14 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <button v-if="sidebarExpanded" type="button" class="new-chat" @click="createSession">
+      <button v-if="sidebarExpanded" type="button" class="new-chat" @click="onCreateSidebarEntry">
         <span class="plus">＋</span>
-        创建新对话
+        {{ newEntryLabel }}
       </button>
-      <button v-else type="button" class="rail-new" title="创建新对话" @click="createSession">＋</button>
+      <button v-else type="button" class="rail-new" :title="newEntryLabel" @click="onCreateSidebarEntry">＋</button>
 
       <button
-        v-if="sidebarExpanded"
+        v-if="sidebarExpanded && !inProblemConvert"
         type="button"
         class="kb-side-btn"
         :class="{ off: kbRagOff }"
@@ -673,7 +829,7 @@ onUnmounted(() => {
         <span class="kb-side-text">{{ kbSummary }}</span>
       </button>
       <button
-        v-else
+        v-else-if="!inProblemConvert"
         type="button"
         class="rail-kb"
         :class="{ off: kbRagOff }"
@@ -687,26 +843,74 @@ onUnmounted(() => {
         </svg>
       </button>
 
+      <button
+        v-if="sidebarExpanded"
+        ref="moreAgentsBtnRef"
+        type="button"
+        class="more-agents-btn"
+        :class="{ active: !!activeAgentId }"
+        :disabled="asking"
+        title="专属智能体"
+        @click.stop="toggleAgentMenu"
+      >
+        <span class="dots" :class="{ anim: dotsAnimating }" aria-hidden="true">
+          <i /><i /><i />
+        </span>
+        <span class="more-text">{{ activeAgentName || '显示更多' }}</span>
+      </button>
+      <button
+        v-else
+        ref="railMoreBtnRef"
+        type="button"
+        class="rail-more"
+        :class="{ active: !!activeAgentId }"
+        :disabled="asking"
+        title="专属智能体"
+        @click.stop="toggleAgentMenu"
+      >
+        <span class="dots compact" :class="{ anim: dotsAnimating }" aria-hidden="true">
+          <i /><i /><i />
+        </span>
+      </button>
+
       <div v-if="sidebarExpanded && searchOpen" class="search-box">
-        <input v-model="searchKeyword" placeholder="搜索历史对话" />
+        <input v-model="searchKeyword" :placeholder="searchPlaceholder" />
       </div>
 
       <div class="history">
-        <div v-if="sidebarExpanded" class="history-label">最近</div>
-        <button
-          v-for="session in filteredSessions"
-          :key="session.id"
-          type="button"
-          class="history-item"
-          :class="{ active: session.id === activeSessionId, compact: !sidebarExpanded }"
-          :title="session.title"
-          @click="selectSession(session.id)"
-        >
-          <span class="dot" />
-          <span v-if="sidebarExpanded" class="history-text">
-            <span class="history-title">{{ session.title }}</span>
-          </span>
-        </button>
+        <div v-if="sidebarExpanded" class="history-label">{{ historyLabel }}</div>
+        <template v-if="inProblemConvert">
+          <button
+            v-for="record in filteredConvertRecords"
+            :key="record.id"
+            type="button"
+            class="history-item"
+            :class="{ active: record.id === activeConvertRecordId, compact: !sidebarExpanded }"
+            :title="record.title"
+            @click="onSelectConvertRecord(record.id)"
+          >
+            <span class="dot" />
+            <span v-if="sidebarExpanded" class="history-text">
+              <span class="history-title">{{ record.title }}</span>
+            </span>
+          </button>
+        </template>
+        <template v-else>
+          <button
+            v-for="session in filteredSessions"
+            :key="session.id"
+            type="button"
+            class="history-item"
+            :class="{ active: session.id === activeSessionId, compact: !sidebarExpanded }"
+            :title="session.title"
+            @click="selectSession(session.id)"
+          >
+            <span class="dot" />
+            <span v-if="sidebarExpanded" class="history-text">
+              <span class="history-title">{{ session.title }}</span>
+            </span>
+          </button>
+        </template>
       </div>
 
       <div class="side-footer">
@@ -745,6 +949,35 @@ onUnmounted(() => {
 
     <Teleport to="body">
       <div
+        v-if="agentMenuOpen"
+        class="agent-menu"
+        :style="agentMenuStyle"
+      >
+        <div class="agent-menu-title">专属智能体</div>
+        <button
+          v-for="agent in AGENT_LIST"
+          :key="agent.id"
+          type="button"
+          class="agent-menu-item"
+          :class="{ selected: activeAgentId === agent.id }"
+          @click="onAgentSelect(agent.id)"
+        >
+          <span class="agent-menu-name">{{ agent.name }}</span>
+          <span class="agent-menu-desc">{{ agent.description }}</span>
+        </button>
+        <button
+          v-if="activeAgentId"
+          type="button"
+          class="agent-menu-back"
+          @click="backToChat"
+        >
+          返回对话
+        </button>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
         v-if="menuOpen && auth.isLoggedIn"
         class="user-menu"
         :style="userMenuStyle"
@@ -755,7 +988,14 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
-    <section class="main" :class="{ empty: !hasMessages }">
+    <section class="main" :class="{ empty: !hasMessages && !activeAgentId, agent: !!activeAgentId }">
+      <ProblemConvertWorkspace
+        v-if="activeAgentId === 'problem-convert'"
+        :model-id="selectedModelId"
+        :model-name="selectedModelName"
+      />
+
+      <template v-else>
       <input ref="attachInput" type="file" class="hidden-file" @change="onAttachChange" />
 
       <header class="topbar">
@@ -892,6 +1132,7 @@ onUnmounted(() => {
           </div>
           <p v-if="pendingFileName" class="file-tip">已选择：{{ pendingFileName }}</p>
         </div>
+      </template>
       </template>
     </section>
 
@@ -1176,6 +1417,125 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+.more-agents-btn {
+  margin-top: 4px;
+  width: 100%;
+  border: 1px dashed #ddd;
+  border-radius: 12px;
+  background: transparent;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: #555;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.more-agents-btn:hover:not(:disabled) {
+  background: #f3f3f3;
+  border-color: #ccc;
+}
+
+.more-agents-btn.active {
+  border-style: solid;
+  border-color: #111;
+  background: #fff;
+  color: #111;
+}
+
+.more-agents-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.more-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-more {
+  width: 40px;
+  height: 40px;
+  margin: 4px auto 0;
+  border: 1px dashed #ddd;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.rail-more:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.rail-more.active {
+  border-style: solid;
+  border-color: #111;
+  background: #fff;
+}
+
+.rail-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.dots i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dots.compact i {
+  width: 3px;
+  height: 3px;
+}
+
+.dots.anim i {
+  animation: dot-bounce 0.45s ease;
+}
+
+.dots.anim i:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.dots.anim i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.dots.anim i:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  40% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
 .search-box {
   margin-top: 8px;
   padding: 0 4px;
@@ -1376,6 +1736,77 @@ onUnmounted(() => {
   color: #b91c1c;
 }
 
+.agent-menu {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+}
+
+.agent-menu-title {
+  padding: 8px 12px 4px;
+  font-size: 12px;
+  color: #999;
+}
+
+.agent-menu-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-menu-item:hover,
+.agent-menu-item.selected {
+  background: #f3f3f3;
+}
+
+.agent-menu-item.selected {
+  outline: 1px solid #ddd;
+}
+
+.agent-menu-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111;
+}
+
+.agent-menu-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #888;
+}
+
+.agent-menu-back {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  color: #666;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 4px;
+}
+
+.agent-menu-back:hover {
+  background: #f3f3f3;
+}
+
 .main {
   min-width: 0;
   min-height: 0;
@@ -1389,6 +1820,13 @@ onUnmounted(() => {
 
 .main.empty {
   grid-template-rows: 56px 1fr;
+}
+
+.main.agent {
+  display: flex;
+  flex-direction: column;
+  grid-template-rows: unset;
+  overflow: hidden;
 }
 
 .topbar {

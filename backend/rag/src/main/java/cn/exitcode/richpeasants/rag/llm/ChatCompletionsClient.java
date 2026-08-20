@@ -47,8 +47,12 @@ public class ChatCompletionsClient {
     }
 
     public String complete(LlmModel model, String systemPrompt, String userPrompt) {
+        return complete(model, systemPrompt, userPrompt, null);
+    }
+
+    public String complete(LlmModel model, String systemPrompt, String userPrompt, Double temperature) {
         StringBuilder full = new StringBuilder();
-        stream(model, systemPrompt, userPrompt, full::append);
+        stream(model, systemPrompt, userPrompt, full::append, temperature);
         String answer = full.toString().trim();
         if (!StringUtils.hasText(answer)) {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "对话模型返回空内容");
@@ -57,20 +61,35 @@ public class ChatCompletionsClient {
     }
 
     public void stream(LlmModel model, String systemPrompt, String userPrompt, Consumer<String> onDelta) {
+        stream(model, systemPrompt, userPrompt, onDelta, null);
+    }
+
+    public void stream(LlmModel model,
+                       String systemPrompt,
+                       String userPrompt,
+                       Consumer<String> onDelta,
+                       Double temperature) {
         List<Map<String, Object>> messages = new ArrayList<>();
         if (StringUtils.hasText(systemPrompt)) {
             messages.add(Map.of("role", "system", "content", systemPrompt));
         }
         messages.add(Map.of("role", "user", "content", userPrompt));
-        stream(model, messages, onDelta);
+        stream(model, messages, onDelta, temperature);
     }
 
     /**
      * 流式调用（完整 messages，无 tools）。
      */
     public void stream(LlmModel model, List<Map<String, Object>> messages, Consumer<String> onDelta) {
+        stream(model, messages, onDelta, null);
+    }
+
+    public void stream(LlmModel model,
+                       List<Map<String, Object>> messages,
+                       Consumer<String> onDelta,
+                       Double temperature) {
         String url = completionsUrl(model);
-        Map<String, Object> body = baseBody(model, messages);
+        Map<String, Object> body = baseBody(model, messages, temperature);
         body.put("stream", true);
 
         try {
@@ -264,11 +283,15 @@ public class ChatCompletionsClient {
     }
 
     private Map<String, Object> baseBody(LlmModel model, List<Map<String, Object>> messages) {
+        return baseBody(model, messages, null);
+    }
+
+    private Map<String, Object> baseBody(LlmModel model, List<Map<String, Object>> messages, Double temperature) {
         String modelName = StringUtils.hasText(model.getModelName()) ? model.getModelName() : model.getName();
         Map<String, Object> body = new HashMap<>();
         body.put("model", modelName);
         body.put("messages", messages);
-        body.put("temperature", ragAppProperties.getTemperature());
+        body.put("temperature", temperature != null ? temperature : ragAppProperties.getTemperature());
         return body;
     }
 

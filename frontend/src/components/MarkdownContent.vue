@@ -1,26 +1,51 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { renderMarkdown } from '@/utils/markdown'
+import { healIncompleteMarkdown, renderMarkdown } from '@/utils/markdown'
+import {
+  annotateMarkdownBlocks,
+  copyHtmlSource,
+  copyTextPlain,
+  elementExportHtml,
+  getMarkdownBlockRanges,
+  getSelectionInRoot,
+  processExportHtml,
+  rangeToHtml,
+  wrapNiukeExportHtml,
+  rangeToMarkdown,
+} from '@/utils/markdownFragment'
+import { prepareOIMarkdown } from '@/utils/oiMarkdownMath'
 
 const props = withDefaults(
   defineProps<{
     content: string
     pending?: boolean
     streaming?: boolean
+    /** 启用选中片段右键复制 HTML / Markdown */
+    fragmentCopy?: boolean
+    /** 原始 Markdown，用于片段复制回源码 */
+    sourceMarkdown?: string
   }>(),
   {
     pending: false,
     streaming: false,
+    fragmentCopy: false,
+    sourceMarkdown: '',
   },
 )
 
 const emit = defineEmits<{
   rendered: []
+  fragmentCopied: [format: 'html' | 'markdown']
+  fragmentCopyFailed: []
 }>()
 
 const rootEl = ref<HTMLElement | null>(null)
 const html = ref('')
 const copiedTimers = new WeakMap<HTMLElement, number>()
+
+const menuVisible = ref(false)
+const menuPos = ref({ x: 0, y: 0 })
+let sourcePrepared = ''
 
 const STREAM_INTERVAL_MS = 40
 let rafId = 0
@@ -28,9 +53,21 @@ let timerId = 0
 let pendingContent = ''
 let pendingStreaming = false
 
+function fragmentSource(content = props.content || ''): string {
+  // 必须与 renderMarkdown 使用同一预处理结果，否则 data-md-* 偏移会串到后面章节
+  const raw = (props.sourceMarkdown || content || '').replace(/\r\n/g, '\n')
+  return healIncompleteMarkdown(prepareOIMarkdown(raw))
+}
+
 function paint(content: string, streaming: boolean) {
   html.value = renderMarkdown(content || '', { streaming })
-  queueMicrotask(() => emit('rendered'))
+  sourcePrepared = fragmentSource(content || '')
+  queueMicrotask(() => {
+    if (rootEl.value && props.fragmentCopy) {
+      annotateMarkdownBlocks(rootEl.value, getMarkdownBlockRanges(sourcePrepared))
+    }
+    emit('rendered')
+  })
 }
 
 function flush() {
@@ -76,6 +113,96 @@ watch(
 onBeforeUnmount(() => {
   if (timerId) window.clearTimeout(timerId)
   if (rafId) cancelAnimationFrame(rafId)
+  hideFragmentMenu()
+})
+
+function hideFragmentMenu() {
+  menuVisible.value = false
+}
+
+function onContextMenu(event: MouseEvent) {
+  if (!props.fragmentCopy || !rootEl.value) return
+  const range = getSelectionInRoot(rootEl.value)
+  if (!range) return
+  event.preventDefault()
+  menuPos.value = { x: event.clientX, y: event.clientY }
+  menuVisible.value = true
+}
+
+function onDocumentClick() {
+  hideFragmentMenu()
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') hideFragmentMenu()
+}
+
+watch(
+  () => menuVisible.value,
+  (visible) => {
+    if (visible) {
+      document.addEventListener('click', onDocumentClick, true)
+      document.addEventListener('keydown', onDocumentKeydown, true)
+      document.addEventListener('scroll', hideFragmentMenu, true)
+    } else {
+      document.removeEventListener('click', onDocumentClick, true)
+      document.removeEventListener('keydown', onDocumentKeydown, true)
+      document.removeEventListener('scroll', hideFragmentMenu, true)
+    }
+  },
+)
+
+async function onMenuCopy(format: 'html' | 'markdown') {
+  if (!rootEl.value) return
+  const range = getSelectionInRoot(rootEl.value)
+  if (!range) return
+  try {
+    const source = sourcePrepared || fragmentSource()
+    if (format === 'html') {
+      await copyHtmlSource(rangeToHtml(range, rootEl.value, source))
+    } else {
+      const md = rangeToMarkdown(range, rootEl.value, source)
+      await copyTextPlain(md)
+    }
+    emit('fragmentCopied', format)
+    hideFragmentMenu()
+  } catch {
+    emit('fragmentCopyFailed')
+    hideFragmentMenu()
+  }
+}
+
+async function copySelectionAs(format: 'html' | 'markdown') {
+  await onMenuCopy(format)
+}
+
+function getFullExportHtml(): string {
+  if (!rootEl.value) return ''
+  return elementExportHtml(rootEl.value)
+}
+
+function getFullExportMarkdown(): string {
+  return (props.sourceMarkdown || props.content || '').trim()
+}
+
+function onCopy(event: ClipboardEvent) {
+  if (!props.fragmentCopy || !rootEl.value) return
+  const range = getSelectionInRoot(rootEl.value)
+  if (!range) return
+
+  event.preventDefault()
+  const source = sourcePrepared || fragmentSource()
+  const exported = processExportHtml(rangeToHtml(range, rootEl.value, source))
+  if (event.clipboardData) {
+    event.clipboardData.setData('text/plain', exported)
+    event.clipboardData.setData('text/html', wrapNiukeExportHtml(exported))
+  }
+}
+
+defineExpose({
+  getFullExportHtml,
+  getFullExportMarkdown,
+  copySelectionAs,
 })
 
 async function copyText(text: string) {
@@ -130,19 +257,75 @@ async function onClick(event: MouseEvent) {
     v-else
     ref="rootEl"
     class="md-body"
-    :class="{ streaming }"
+    :class="{ streaming, 'fragment-copy': fragmentCopy }"
     v-html="html"
     @click="onClick"
+    @copy="onCopy"
+    @contextmenu="onContextMenu"
   />
+  <Teleport to="body">
+    <div
+      v-if="fragmentCopy && menuVisible"
+      class="md-fragment-menu"
+      :style="{ left: `${menuPos.x}px`, top: `${menuPos.y}px` }"
+      @contextmenu.prevent
+    >
+      <button type="button" @click.stop="onMenuCopy('html')">复制选中 HTML 源码</button>
+      <button type="button" @click.stop="onMenuCopy('markdown')">复制选中 Markdown</button>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.md-body.fragment-copy {
+  user-select: text;
+  cursor: text;
+}
+
+.md-fragment-menu {
+  position: fixed;
+  z-index: 10050;
+  min-width: 168px;
+  padding: 6px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+}
+
+.md-fragment-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #222;
+  cursor: pointer;
+}
+
+.md-fragment-menu button:hover {
+  background: #f3f4f6;
+}
+
 .md-body {
   font-size: 15px;
   line-height: 1.7;
   color: #1f1f1f;
   word-break: break-word;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+/* KaTeX 内部不能被 break-word 拆散，否则 lim/分式等会竖排乱掉 */
+.md-body :deep(.katex),
+.md-body :deep(.katex-display),
+.md-body :deep(.katex-display-block),
+.md-body :deep(.katex *) {
+  word-break: normal;
+  overflow-wrap: normal;
 }
 
 .md-body.pending {
@@ -274,6 +457,25 @@ async function onClick(event: MouseEvent) {
 .md-body :deep(img) {
   max-width: 100%;
   border-radius: 10px;
+}
+
+.md-body :deep(.katex) {
+  font-size: 1.05em;
+}
+
+.md-body :deep(.katex-display) {
+  margin: 0.85em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  display: block;
+}
+
+.md-body :deep(.katex-display-block) {
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
 }
 
 .md-body :deep(.md-inline-code) {

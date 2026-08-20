@@ -1,6 +1,9 @@
 import MarkdownIt from 'markdown-it'
+import texmath from 'markdown-it-texmath'
+import katex from 'katex'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/core'
+import { prepareOIMarkdown } from './oiMarkdownMath'
 
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
@@ -105,10 +108,36 @@ const md = new MarkdownIt({
   breaks: true,
 })
 
+md.use(texmath, {
+  engine: katex,
+  // dollars: $ / $$；brackets: \( \) / \[ \]；beg_end: \begin{...}；gitlab: ```math
+  delimiters: ['dollars', 'brackets', 'beg_end', 'gitlab'],
+  katexOptions: {
+    throwOnError: false,
+    strict: 'ignore',
+    trust: false,
+  },
+})
+
 md.renderer.rules.fence = (tokens, idx) => {
   const token = tokens[idx]
   const info = token.info ? md.utils.unescapeAll(token.info).trim() : ''
   const lang = info.split(/\s+/)[0] || ''
+  // 兜底：未预处理的 latex/math 围栏仍渲染为公式而非代码
+  if (/^(?:latex|math|tex)$/i.test(lang)) {
+    const body = token.content.trim()
+    try {
+      const html = katex.renderToString(body, {
+        displayMode: true,
+        throwOnError: false,
+        strict: 'ignore',
+        trust: false,
+      })
+      return `<div class="katex-display-block">${html}</div>`
+    } catch {
+      return renderCodeBlock(token.content, lang)
+    }
+  }
   return renderCodeBlock(token.content, lang)
 }
 
@@ -122,8 +151,30 @@ md.renderer.rules.code_inline = (tokens, idx) => {
 }
 
 const PURIFY_OPTS: DOMPurify.Config = {
-  USE_PROFILES: { html: true },
-  ADD_TAGS: ['button', 'svg', 'path', 'rect', 'span'],
+  USE_PROFILES: { html: true, svg: true },
+  ALLOW_DATA_ATTR: true,
+  ADD_TAGS: [
+    'button',
+    'svg',
+    'path',
+    'rect',
+    'span',
+    'math',
+    'semantics',
+    'mrow',
+    'mi',
+    'mo',
+    'mn',
+    'msup',
+    'msub',
+    'mfrac',
+    'mspace',
+    'mtext',
+    'mtable',
+    'mtr',
+    'mtd',
+    'annotation',
+  ],
   ADD_ATTR: [
     'class',
     'type',
@@ -142,6 +193,11 @@ const PURIFY_OPTS: DOMPurify.Config = {
     'x',
     'y',
     'rx',
+    'style',
+    'xmlns',
+    'encoding',
+    'display',
+    'data-tex',
   ],
 }
 
@@ -332,6 +388,21 @@ function decorateCitations(html: string): string {
   })
 }
 
+/** 在 DOMPurify 可能剥离 MathML/annotation 前，把 TeX 存到 data-tex */
+function preserveKatexTex(html: string): string {
+  if (typeof document === 'undefined') return html
+  const box = document.createElement('div')
+  box.innerHTML = html
+  box.querySelectorAll('.katex').forEach((node) => {
+    const el = node as HTMLElement
+    if (el.dataset.tex) return
+    const ann = el.querySelector('annotation[encoding="application/x-tex"], annotation[encoding="application/x-katex"]')
+    const tex = ann?.textContent?.trim()
+    if (tex) el.dataset.tex = tex
+  })
+  return box.innerHTML
+}
+
 /** @deprecated 使用 healIncompleteMarkdown */
 export function normalizeMarkdown(source: string): string {
   return healIncompleteMarkdown(source)
@@ -344,8 +415,7 @@ export function stabilizeStreamingMarkdown(source: string): string {
 export function renderMarkdown(source: string, _options?: { streaming?: boolean }): string {
   const raw = source == null ? '' : String(source)
   if (!raw.trim()) return ''
-  // 展示层虚拟修补：不改写入的原文；流式与最终 answer 都走同一套
-  const prepared = healIncompleteMarkdown(raw)
+  const prepared = healIncompleteMarkdown(prepareOIMarkdown(raw))
   const html = md.render(prepared)
-  return DOMPurify.sanitize(decorateCitations(html), PURIFY_OPTS) as string
+  return DOMPurify.sanitize(decorateCitations(preserveKatexTex(html)), PURIFY_OPTS) as string
 }
