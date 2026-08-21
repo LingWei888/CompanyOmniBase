@@ -60,6 +60,20 @@ public class ChatCompletionsClient {
         return answer;
     }
 
+    public String complete(LlmModel model, List<Map<String, Object>> messages) {
+        return complete(model, messages, null);
+    }
+
+    public String complete(LlmModel model, List<Map<String, Object>> messages, Double temperature) {
+        StringBuilder full = new StringBuilder();
+        stream(model, messages, full::append, temperature);
+        String answer = full.toString().trim();
+        if (!StringUtils.hasText(answer)) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "对话模型返回空内容");
+        }
+        return answer;
+    }
+
     public void stream(LlmModel model, String systemPrompt, String userPrompt, Consumer<String> onDelta) {
         stream(model, systemPrompt, userPrompt, onDelta, null);
     }

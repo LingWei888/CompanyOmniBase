@@ -75,6 +75,7 @@ app:
     base-path: kb-qa
   elasticsearch:
     chunk-index: kb_chunk_vector
+    memory-index: user_memory_vector
   embedding:
     batch-size: 8
     connect-timeout-ms: 15000
@@ -86,6 +87,18 @@ app:
     connect-timeout-ms: 15000
     read-timeout-ms: 120000
     temperature: 0.2
+    memory:
+      short-term:
+        max-turns: 8
+        max-chars: 12000
+      long-term:
+        enabled: true
+        top-k: 5
+        min-score: 0.52
+        duplicate-threshold: 0.90
+        max-inject-chars: 1500
+        max-per-user: 100
+        extract-enabled: true
     agent:
       max-tool-rounds: 3
       tavily:

@@ -18,6 +18,7 @@ public class IngestAppProperties {
 
     public static class Elasticsearch {
         private String chunkIndex = "kb_chunk_vector";
+        private String memoryIndex = "user_memory_vector";
 
         public String getChunkIndex() {
             return chunkIndex;
@@ -25,6 +26,14 @@ public class IngestAppProperties {
 
         public void setChunkIndex(String chunkIndex) {
             this.chunkIndex = chunkIndex;
+        }
+
+        public String getMemoryIndex() {
+            return memoryIndex;
+        }
+
+        public void setMemoryIndex(String memoryIndex) {
+            this.memoryIndex = memoryIndex;
         }
     }
 

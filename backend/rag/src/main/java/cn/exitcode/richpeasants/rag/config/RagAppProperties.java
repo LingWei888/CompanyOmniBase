@@ -15,6 +15,7 @@ public class RagAppProperties {
     private int readTimeoutMs = 120000;
     private double temperature = 0.2;
     private final Agent agent = new Agent();
+    private final Memory memory = new Memory();
 
     public int getTopK() {
         return topK;
@@ -66,6 +67,118 @@ public class RagAppProperties {
 
     public Agent getAgent() {
         return agent;
+    }
+
+    public Memory getMemory() {
+        return memory;
+    }
+
+    public static class Memory {
+        private final ShortTerm shortTerm = new ShortTerm();
+        private final LongTerm longTerm = new LongTerm();
+
+        public ShortTerm getShortTerm() {
+            return shortTerm;
+        }
+
+        public LongTerm getLongTerm() {
+            return longTerm;
+        }
+    }
+
+    public static class ShortTerm {
+        /** 注入模型的最近对话轮数（一轮 = user + assistant） */
+        private int maxTurns = 8;
+        /** 历史正文总字符上限，超出则从最旧轮次截断 */
+        private int maxChars = 12000;
+
+        public int getMaxTurns() {
+            return maxTurns;
+        }
+
+        public void setMaxTurns(int maxTurns) {
+            this.maxTurns = maxTurns;
+        }
+
+        public int getMaxChars() {
+            return maxChars;
+        }
+
+        public void setMaxChars(int maxChars) {
+            this.maxChars = maxChars;
+        }
+    }
+
+    public static class LongTerm {
+        private boolean enabled = true;
+        /** 每次问答检索条数 */
+        private int topK = 5;
+        /** 低于该相关度不注入（cosine score，约 0~1） */
+        private double minScore = 0.52;
+        /** 新事实与已有记忆相似度高于此值则跳过（去重） */
+        private double duplicateThreshold = 0.90;
+        /** 注入 system 的记忆总字符上限 */
+        private int maxInjectChars = 1500;
+        /** 单用户最多保留条数，超出删最旧 */
+        private int maxPerUser = 100;
+        /** 是否在回答后异步抽取并写入 */
+        private boolean extractEnabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getTopK() {
+            return topK;
+        }
+
+        public void setTopK(int topK) {
+            this.topK = topK;
+        }
+
+        public double getMinScore() {
+            return minScore;
+        }
+
+        public void setMinScore(double minScore) {
+            this.minScore = minScore;
+        }
+
+        public double getDuplicateThreshold() {
+            return duplicateThreshold;
+        }
+
+        public void setDuplicateThreshold(double duplicateThreshold) {
+            this.duplicateThreshold = duplicateThreshold;
+        }
+
+        public int getMaxInjectChars() {
+            return maxInjectChars;
+        }
+
+        public void setMaxInjectChars(int maxInjectChars) {
+            this.maxInjectChars = maxInjectChars;
+        }
+
+        public int getMaxPerUser() {
+            return maxPerUser;
+        }
+
+        public void setMaxPerUser(int maxPerUser) {
+            this.maxPerUser = maxPerUser;
+        }
+
+        public boolean isExtractEnabled() {
+            return extractEnabled;
+        }
+
+        public void setExtractEnabled(boolean extractEnabled) {
+            this.extractEnabled = extractEnabled;
+        }
     }
 
     public static class Agent {

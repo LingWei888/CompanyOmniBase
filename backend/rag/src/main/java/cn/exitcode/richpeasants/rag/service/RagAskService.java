@@ -44,7 +44,7 @@ public class RagAskService {
 
     private static final String RAG_SYSTEM_PROMPT = """
             你是企业知识库智能助手。请只根据用户提供的「参考资料」回答问题。
-            若资料不足以支撑结论，请明确说明无法从知识库得出答案，不要编造。
+            若有多轮对话历史，可结合上文理解指代与追问；但事实性结论仍须依据本轮「参考资料」，资料不足时明确说明，不要编造。
             回答使用简洁中文；涉及具体事实时可用 [1][2] 标注对应资料编号。
             输出代码时必须使用标准 Markdown 围栏：``` 单独成行，语言标记与代码之间换行，代码块结束后再用 ``` 单独成行关闭；不要把标题和 ``` 粘在同一行。
             """;
@@ -59,6 +59,7 @@ public class RagAskService {
     private final RagAppProperties ragAppProperties;
     private final ObjectMapper objectMapper;
     private final ChatSessionService chatSessionService;
+    private final UserMemoryService userMemoryService;
 
     public RagAskService(KnowledgeBaseRepository knowledgeBaseRepository,
                          LlmModelRepository llmModelRepository,
@@ -69,7 +70,8 @@ public class RagAskService {
                          AgentOrchestrator agentOrchestrator,
                          RagAppProperties ragAppProperties,
                          ObjectMapper objectMapper,
-                         ChatSessionService chatSessionService) {
+                         ChatSessionService chatSessionService,
+                         UserMemoryService userMemoryService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.llmModelRepository = llmModelRepository;
         this.kbDocumentRepository = kbDocumentRepository;
@@ -80,6 +82,7 @@ public class RagAskService {
         this.ragAppProperties = ragAppProperties;
         this.objectMapper = objectMapper;
         this.chatSessionService = chatSessionService;
+        this.userMemoryService = userMemoryService;
     }
 
     public RagAskResponse ask(RagAskRequest request, LoginUser loginUser) {
@@ -101,15 +104,18 @@ public class RagAskService {
         if (!prepared.ragEnabled()) {
             answer = agentOrchestrator.run(
                     prepared.chatModel(),
+                    prepared.systemPrompt(),
+                    prepared.history(),
                     prepared.userQuestion(),
                     (name, display) -> { },
                     delta -> { }
             );
         } else {
             answer = chatCompletionsClient.complete(
-                    prepared.chatModel(), prepared.systemPrompt(), prepared.userPrompt());
+                    prepared.chatModel(), buildMessages(prepared));
         }
         persistAssistantMessage(prepared, answer, prepared.citations());
+        scheduleMemoryExtract(prepared, answer);
         return new RagAskResponse(
                 answer,
                 prepared.kbIds(),
@@ -149,6 +155,8 @@ public class RagAskService {
             if (!prepared.ragEnabled()) {
                 agentOrchestrator.run(
                         prepared.chatModel(),
+                        prepared.systemPrompt(),
+                        prepared.history(),
                         prepared.userQuestion(),
                         (toolName, display) -> {
                             try {
@@ -173,8 +181,7 @@ public class RagAskService {
             } else {
                 chatCompletionsClient.stream(
                         prepared.chatModel(),
-                        prepared.systemPrompt(),
-                        prepared.userPrompt(),
+                        buildMessages(prepared),
                         delta -> {
                             full.append(delta);
                             try {
@@ -187,6 +194,7 @@ public class RagAskService {
 
             sendEvent(emitter, "done", Map.of("answer", full.toString()));
             persistAssistantMessage(prepared, full.toString(), prepared.citations());
+            scheduleMemoryExtract(prepared, full.toString());
             emitter.complete();
         } catch (BusinessException ex) {
             try {
@@ -213,12 +221,17 @@ public class RagAskService {
         }
 
         ChatSession session = resolveSession(request, loginUser);
+        List<Map<String, Object>> history = loadShortTermHistory(session);
+        Long userId = loginUser == null ? null : loginUser.getUserId();
+        List<String> longTerm = userMemoryService.retrieveForPrompt(userId, question);
         ResolvedKbs resolved = resolveKnowledgeBases(request);
         LlmModel chatModel = requireChatModel(request.getModelId());
 
         // 未选知识库：走 Agent（工具：时间 / 天气 / Tavily 搜索）
         if (!resolved.ragEnabled()) {
-            log.debug("Agent mode: no knowledge base selected");
+            String systemPrompt = userMemoryService.appendToSystemPrompt(
+                    AgentOrchestrator.AGENT_SYSTEM_PROMPT, longTerm);
+            log.debug("Agent mode: historyMsgs={}, longTerm={}", history.size(), longTerm.size());
             return new PreparedAsk(
                     List.of(),
                     List.of(),
@@ -226,10 +239,12 @@ public class RagAskService {
                     List.of(),
                     List.of(),
                     question,
-                    AgentOrchestrator.AGENT_SYSTEM_PROMPT,
+                    systemPrompt,
                     false,
                     session,
-                    question
+                    question,
+                    history,
+                    userId
             );
         }
 
@@ -248,11 +263,13 @@ public class RagAskService {
                 vectors.get(0),
                 topK
         );
-        log.debug("RAG retrieve: kbIds={}, hits={}", resolved.kbIds(), hits.size());
+        log.debug("RAG retrieve: kbIds={}, hits={}, historyMsgs={}, longTerm={}",
+                resolved.kbIds(), hits.size(), history.size(), longTerm.size());
 
         Map<Long, String> titleMap = loadDocumentTitles(hits);
         List<RagCitation> citations = hits.isEmpty() ? List.of() : toCitations(hits, titleMap);
         String userPrompt = hits.isEmpty() ? question : buildUserPrompt(question, hits, titleMap);
+        String systemPrompt = userMemoryService.appendToSystemPrompt(RAG_SYSTEM_PROMPT, longTerm);
         return new PreparedAsk(
                 resolved.kbIds(),
                 resolved.kbNames(),
@@ -260,11 +277,37 @@ public class RagAskService {
                 hits,
                 citations,
                 userPrompt,
-                RAG_SYSTEM_PROMPT,
+                systemPrompt,
                 true,
                 session,
-                question
+                question,
+                history,
+                userId
         );
+    }
+
+    private List<Map<String, Object>> loadShortTermHistory(ChatSession session) {
+        if (session == null) {
+            return List.of();
+        }
+        RagAppProperties.ShortTerm shortTerm = ragAppProperties.getMemory().getShortTerm();
+        return chatSessionService.listRecentForPrompt(
+                session.getId(),
+                shortTerm.getMaxTurns(),
+                shortTerm.getMaxChars()
+        );
+    }
+
+    private List<Map<String, Object>> buildMessages(PreparedAsk prepared) {
+        List<Map<String, Object>> messages = new ArrayList<>();
+        if (StringUtils.hasText(prepared.systemPrompt())) {
+            messages.add(Map.of("role", "system", "content", prepared.systemPrompt()));
+        }
+        if (prepared.history() != null && !prepared.history().isEmpty()) {
+            messages.addAll(prepared.history());
+        }
+        messages.add(Map.of("role", "user", "content", prepared.userPrompt()));
+        return messages;
     }
 
     private ChatSession resolveSession(RagAskRequest request, LoginUser loginUser) {
@@ -288,6 +331,20 @@ public class RagAskService {
             return;
         }
         chatSessionService.appendAssistantMessage(prepared.session(), answer, citations);
+    }
+
+    private void scheduleMemoryExtract(PreparedAsk prepared, String answer) {
+        if (prepared.userId() == null || !StringUtils.hasText(answer)) {
+            return;
+        }
+        Long sessionId = prepared.session() == null ? null : prepared.session().getId();
+        userMemoryService.extractAndStoreAsync(
+                prepared.userId(),
+                sessionId,
+                prepared.userQuestion(),
+                answer,
+                prepared.chatModel()
+        );
     }
 
     private LlmModel requireChatModel(Long modelId) {
@@ -443,6 +500,8 @@ public class RagAskService {
                                String systemPrompt,
                                boolean ragEnabled,
                                ChatSession session,
-                               String userQuestion) {
+                               String userQuestion,
+                               List<Map<String, Object>> history,
+                               Long userId) {
     }
 }

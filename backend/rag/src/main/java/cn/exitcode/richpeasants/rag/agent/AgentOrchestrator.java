@@ -33,12 +33,13 @@ public class AgentOrchestrator {
     public static final String AGENT_SYSTEM_PROMPT = """
             你是智能助手，可以使用工具获取实时信息后再回答。
             规则：
-            1. 询问当前时间/日期/星期时，调用一次 get_current_time。
-            2. 询问天气时，只调用一次 get_weather；禁止再调用 web_search。
-            3. 只有明确需要联网查新闻/网页资料时，才调用一次 web_search。
-            4. 每一轮每种工具最多调用一次，禁止并行重复同一工具。
-            5. 拿到工具结果后立刻用简洁中文回答，不要再调工具。
-            6. 禁止输出 DSML / XML / tool_calls 标记；代码用 Markdown 围栏。
+            1. 若有多轮对话历史，可结合上文理解指代与追问。
+            2. 询问当前时间/日期/星期时，调用一次 get_current_time。
+            3. 询问天气时，只调用一次 get_weather；禁止再调用 web_search。
+            4. 只有明确需要联网查新闻/网页资料时，才调用一次 web_search。
+            5. 每一轮每种工具最多调用一次，禁止并行重复同一工具。
+            6. 拿到工具结果后立刻用简洁中文回答，不要再调工具。
+            7. 禁止输出 DSML / XML / tool_calls 标记；代码用 Markdown 围栏。
             """;
 
     private static final String FINALIZE_USER_PROMPT = """
@@ -63,6 +64,8 @@ public class AgentOrchestrator {
     }
 
     /**
+     * @param systemPrompt 可含长期记忆的系统提示；为空则用默认 Agent 提示
+     * @param history 同会话短期记忆（user/assistant），不含本轮问题
      * @param onTool  工具真正开始执行时回调 (toolName, displayText)；重复/跳过不会触发
      * @param onDelta 最终答案分片
      */
@@ -70,8 +73,29 @@ public class AgentOrchestrator {
                       String userQuestion,
                       BiConsumer<String, String> onTool,
                       Consumer<String> onDelta) {
+        return run(model, AGENT_SYSTEM_PROMPT, List.of(), userQuestion, onTool, onDelta);
+    }
+
+    public String run(LlmModel model,
+                      List<Map<String, Object>> history,
+                      String userQuestion,
+                      BiConsumer<String, String> onTool,
+                      Consumer<String> onDelta) {
+        return run(model, AGENT_SYSTEM_PROMPT, history, userQuestion, onTool, onDelta);
+    }
+
+    public String run(LlmModel model,
+                      String systemPrompt,
+                      List<Map<String, Object>> history,
+                      String userQuestion,
+                      BiConsumer<String, String> onTool,
+                      Consumer<String> onDelta) {
         List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", AGENT_SYSTEM_PROMPT));
+        String system = StringUtils.hasText(systemPrompt) ? systemPrompt : AGENT_SYSTEM_PROMPT;
+        messages.add(Map.of("role", "system", "content", system));
+        if (history != null && !history.isEmpty()) {
+            messages.addAll(history);
+        }
         messages.add(Map.of("role", "user", "content", userQuestion));
 
         List<Map<String, Object>> tools = toolsForQuestion(userQuestion);
